@@ -73,4 +73,5 @@ Then:
 ## Notes
 
 - Changes to `home/CLAUDE.md` apply on Pip's next message. Changes to `ui/` need the app restarted (Quit from its menu, then `bot ui`), and `ui/mac/build.sh` for Swift changes.
+- Pip always bills your Claude plan, never API credits. `bot` and `worker` drop any `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` they inherit, since `claude -p` would bill the key instead. `bot ui` starts the app with a clean environment, so a Claude Code session's key never reaches it.
 - Pip runs with Claude Code's auto permission mode and can use your files, terminal and signed-in Chrome. Its rules are in `home/CLAUDE.md`.

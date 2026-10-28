@@ -165,8 +165,8 @@ $task" --session-id
     # Only the project's own settings plus worker-settings.json: Juan's global allow-list (deploys, pushes to
     # databases) is for his own sessions, not for unattended workers. The guard hook gets its path filled in here.
     settings=$(jq -c --arg guard $code/worker-guard '.hooks.PreToolUse[0].hooks[0].command = $guard' $code/worker-settings.json)
-    # CLAUDECODE is unset because claude refuses to start inside another session.
-    $DETACH /usr/bin/time -p -o $times env -u CLAUDECODE claude -p --output-format stream-json --verbose \
+    # CLAUDECODE is unset because claude refuses to start inside another session; the API key and token so it bills the subscription, never API credits.
+    $DETACH /usr/bin/time -p -o $times env -u CLAUDECODE -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN claude -p --output-format stream-json --verbose \
       --model ${model:-claude-opus-5-5} --effort ${effort:-medium} $how "$(meta $name session)" \
       --no-chrome --permission-mode auto --permission-prompts none \
       --setting-sources project,local --settings $settings --append-system-prompt "$(<$code/worker-rules.md)" \
