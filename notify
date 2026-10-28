@@ -1,0 +1,11 @@
+#!/bin/zsh
+# Tell Juan something now: a Mac notification, plus a Telegram message once Telegram is set up.
+#   ./notify "short message"
+cd ${BOT_HOME:-$HOME/bot}
+title=$(cat .name 2>/dev/null || echo bot)
+# message passed as an argument, never pasted into the script, so quotes in it can't break out
+osascript -e 'on run argv' -e 'display notification (item 1 of argv) with title (item 2 of argv)' -e 'end run' "$1" "$title"
+if [[ -s .telegram && -s .telegram-chat ]]; then
+  curl -s --max-time 20 -o /dev/null -w '%{http_code}' "https://api.telegram.org/bot$(<.telegram)/sendMessage" \
+    --data-urlencode "chat_id=$(<.telegram-chat)" --data-urlencode "text=$1" | grep -q 200 || echo "Telegram message failed" >&2
+fi

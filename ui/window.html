@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pip</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; }
+  .eyebrow { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .mono { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  svg { flex: none; }
+
+  header { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 24px; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .avatar { width: 40px; height: 40px; border-radius: 12px; background: var(--accent); color: var(--on-accent); display: flex; align-items: center; justify-content: center; }
+  .who { flex: 1; min-width: 160px; display: flex; flex-direction: column; gap: 2px; }
+  h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  #status { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  #status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+  .btn { height: 40px; padding: 0 16px; border-radius: 9px; border: 1px solid var(--line-strong); background: var(--surface); font-weight: 500; cursor: pointer; }
+  .btn:disabled { opacity: 0.55; cursor: default; }
+
+  .banner { flex: none; margin: 0; padding: 10px 24px; font-size: 13.5px; background: var(--surface); border-bottom: 1px solid var(--line); color: var(--danger); }
+  .banner[hidden] { display: none; }
+
+  .wrap { flex: 1; min-height: 0; display: flex; }
+  main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  #log { flex: 1; overflow-y: auto; padding: 28px 32px 12px; display: flex; flex-direction: column; gap: 18px; }
+  #log > .row, #tail { display: flex; flex-direction: column; gap: 18px; }
+  .empty { margin: auto; text-align: center; color: var(--muted); max-width: 320px; }
+
+  .day { display: flex; align-items: center; gap: 12px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .day::before, .day::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+  .msg { max-width: min(70%, 640px); display: flex; flex-direction: column; gap: 4px; }
+  .bubble { padding: 11px 15px; font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; }
+  .you { align-self: flex-end; align-items: flex-end; }
+  .you .bubble { border-radius: 16px 16px 4px 16px; background: var(--accent); color: var(--on-accent); white-space: pre-wrap; }
+  .you.pending .bubble { opacity: 0.7; }
+  .bot { align-self: flex-start; }
+  .bot .bubble { border-radius: 16px 16px 16px 4px; background: var(--surface); border: 1px solid var(--line); }
+  .bubble p, .bubble ul { margin: 0; }
+  .bubble p + *, .bubble ul + * { margin-top: 8px; }
+  .bubble ul { padding-left: 20px; }
+  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .chip { padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); font-size: 12px; }
+
+  .wake { align-self: center; max-width: min(85%, 640px); display: flex; align-items: flex-start; gap: 8px; padding: 8px 14px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .wake svg { margin-top: 2px; }
+  .wake .text p, .wake .text ul, .wake .text li { display: inline; margin: 0; padding: 0; }
+  .wake .text p + p::before, .wake .text li + li::before { content: " "; }
+  .wake.clamped .text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .link { border: 0; padding: 0; background: none; color: var(--accent-ink); font-size: 13px; cursor: pointer; }
+
+  .thinking { align-self: flex-start; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13.5px; }
+  .thinking .dots { display: flex; gap: 4px; padding: 12px 15px; border-radius: 16px 16px 16px 4px; background: var(--surface); border: 1px solid var(--line); }
+  .thinking .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: pulse 1.2s ease-in-out infinite; }
+  .thinking .dots i:nth-child(2) { animation-delay: 0.2s; }
+  .thinking .dots i:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes pulse { 50% { opacity: 0.3; } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+
+  form { flex: none; margin: 0 32px 24px; }
+  .composer { display: flex; align-items: flex-end; gap: 10px; padding: 8px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line-strong); }
+  .composer:focus-within { border-color: var(--accent); }
+  textarea { flex: 1; min-width: 0; height: 44px; max-height: 200px; resize: none; padding: 11px 10px; border: 0; outline: none; background: transparent; font-size: 15px; line-height: 22px; }
+  .send { width: 44px; height: 44px; flex: none; border-radius: 10px; border: 0; background: var(--accent); color: var(--on-accent); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  #formError { margin: 8px 4px 0; font-size: 13.5px; color: var(--danger); }
+  #formError:empty { display: none; }
+
+  aside { width: 320px; flex: none; overflow-y: auto; display: flex; flex-direction: column; gap: 22px; padding: 28px 24px; background: var(--surface); border-left: 1px solid var(--line); }
+  aside section { display: flex; flex-direction: column; gap: 10px; }
+  aside h2 { margin: 0; }
+  .big { font-size: 22px; font-weight: 600; }
+  .note { margin: 0; font-size: 13.5px; color: var(--muted); }
+  ul.plain { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .task { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.4; }
+  .task::before { content: ""; width: 16px; height: 16px; flex: none; margin-top: 1px; border-radius: 5px; border: 1.5px solid var(--muted); }
+  .mem { padding: 10px 12px; border-radius: var(--radius); background: var(--surface-2); font-size: 14px; line-height: 1.4; }
+  .mem b { display: block; font-weight: 600; }
+  .mem span { color: var(--muted); font-size: 13.5px; }
+  .recent { display: flex; gap: 12px; font-size: 14px; line-height: 1.4; }
+  .recent .mono { flex: none; font-size: 12.5px; padding-top: 1px; }
+  .recent span + span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+
+  @media (max-width: 760px) {
+    html, body { height: auto; }
+    header { padding: 12px 16px; }
+    .wrap { flex-direction: column; }
+    main { flex: none; height: calc(100dvh - 88px); min-height: 360px; } /* 88px ≈ header when its status wraps */
+    #log { padding: 20px 16px 12px; }
+    form { margin: 0 16px 16px; }
+    .msg { max-width: 85%; }
+    aside { width: auto; border-left: 0; border-top: 1px solid var(--line); padding: 24px 16px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="avatar" aria-hidden="true">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="12" rx="4"/><path d="M12 7V4"/><path d="M9 13h.01M15 13h.01"/></svg>
+  </div>
+  <div class="who">
+    <h1 id="name">Pip</h1>
+    <div id="status" role="status">Connecting…</div>
+  </div>
+  <button type="button" class="btn" id="wake">Wake now</button>
+</header>
+<p class="banner" id="offline" role="alert" hidden>Can't reach the bot's local server. Retrying every few seconds.</p>
+<p class="banner" id="lastError" role="alert" hidden></p>
+<div class="wrap">
+  <main>
+    <div id="log" aria-live="polite" aria-label="Conversation">
+      <div id="tail"></div>
+    </div>
+    <form id="form">
+      <div class="composer">
+        <label for="msg" class="sr">Message</label>
+        <textarea id="msg" rows="1" placeholder="Message…" autocomplete="off"></textarea>
+        <button type="submit" class="send" aria-label="Send">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </button>
+      </div>
+      <p id="formError" role="alert"></p>
+    </form>
+  </main>
+  <aside aria-label="About the bot">
+    <section><h2 class="eyebrow">Next wake-up</h2><div id="nextWake"></div></section>
+    <section><h2 class="eyebrow" id="tasksTitle">Open tasks</h2><div id="tasks"></div></section>
+    <section><h2 class="eyebrow" id="memTitle">Memory</h2><div id="mems"></div></section>
+    <section><h2 class="eyebrow">Recent wake-ups</h2><div id="recent"></div></section>
+  </aside>
+</div>
+
+<script type="module">
+import { getState, getHistory, getMemory, sendMessage, wakeNow, watch, toolLabel, clock, dayLabel, renderText } from "./api.js";
+
+const $ = (id) => document.getElementById(id);
+const log = $("log"), tail = $("tail"), msg = $("msg");
+const MOON = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>';
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
+const when = (iso) => `${dayLabel(iso)} ${clock(iso)}`;
+const nearBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+
+let state = null, items = [], name = "Pip";
+let pending = null; // { text, sentAt, el } — your message shown before history has it
+
+// ---- history: re-render only rows whose items changed (the last bot reply grows while it's written) ----
+let sigs = [], rows = []; // rows: { from, to, el } covering items[from..to]
+
+function bubble(item) {
+  const m = el("div", `msg ${item.role === "you" ? "you" : "bot"}`);
+  const b = el("div", "bubble");
+  if (item.role === "you") b.textContent = item.text;
+  else b.innerHTML = renderText(item.text || "…");
+  const meta = el("div", "meta");
+  if (item.role === "bot") {
+    for (const label of new Set((item.tools ?? []).map(toolLabel).filter(Boolean))) meta.append(el("span", "chip", label));
+  }
+  meta.append(el("span", "mono", clock(item.at)));
+  m.append(b, meta);
+  return m;
+}
+
+function wakeNote(wake, reply) {
+  const n = el("div", "wake");
+  n.insertAdjacentHTML("afterbegin", MOON.replace('width="13" height="13"', 'width="14" height="14"'));
+  const body = el("div");
+  const text = el("div", "text");
+  text.append(`Woke on its own at ${clock(wake.at)} · `);
+  const r = el("span");
+  if (reply) r.innerHTML = renderText(reply.text || "working…"); else r.textContent = "working…";
+  text.append(r);
+  body.append(text);
+  if (reply && reply.text.length > 140) {
+    n.classList.add("clamped");
+    const more = el("button", "link", "Show more");
+    more.type = "button";
+    more.setAttribute("aria-expanded", "false");
+    more.onclick = () => {
+      const open = n.classList.toggle("clamped") === false;
+      more.textContent = open ? "Show less" : "Show more";
+      more.setAttribute("aria-expanded", String(open));
+    };
+    body.append(more);
+  }
+  n.append(body);
+  return n;
+}
+
+function renderHistory() {
+  const next = items.map((x) => JSON.stringify(x));
+  let i = 0;
+  while (i < next.length && i < sigs.length && next[i] === sigs[i]) i++;
+  if (i === next.length && i === sigs.length) return false;
+  let start = i;
+  while (rows.length && rows.at(-1).to >= i) { const r = rows.pop(); r.el.remove(); start = r.from; }
+  for (let j = start; j < items.length; j++) {
+    const it = items[j], row = el("div", "row"), from = j;
+    if (j === 0 || !sameDay(items[j - 1].at, it.at)) {
+      const d = el("div", "day", dayLabel(it.at)); d.dataset.at = it.at; row.append(d);
+    }
+    let to = j;
+    if (it.role === "wake") {
+      const reply = items[j + 1]?.role === "bot" ? items[j + 1] : null;
+      row.append(wakeNote(it, reply));
+      to = reply || j + 1 >= items.length ? j + 1 : j; // a reply still to come belongs to this row
+      if (reply) j++;
+    } else row.append(bubble(it));
+    log.insertBefore(row, tail);
+    rows.push({ from, to, el: row });
+  }
+  sigs = next;
+  return true;
+}
+
+function renderTail() {
+  if (pending && items.some((x) => x.role === "you" && Date.parse(x.at) >= pending.sentAt - 2000)) {
+    pending.el.remove(); pending = null;
+  } else if (pending && state?.lastError?.at >= pending.sentAt) {
+    // the run failed before the message reached the conversation: give the text back (the banner shows why)
+    if (!msg.value) { msg.value = pending.text; grow(); }
+    pending.el.remove(); pending = null;
+  }
+  tail.replaceChildren(...[pending?.el].filter(Boolean));
+  if (state?.busy || pending) {
+    const label = state?.busy ? `${name} is thinking…`
+      : state?.terminalChat ? "Waiting: the Terminal chat is open" : "Sending…";
+    const t = el("div", "thinking");
+    t.innerHTML = '<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>';
+    t.append(el("span", null, label));
+    tail.append(t);
+  } else if (!items.length && state) {
+    tail.append(el("p", "empty", `No messages yet. Say hello to ${name}.`));
+  }
+}
+
+function renderLog() {
+  const stick = nearBottom(), first = !sigs.length;
+  const before = tail.textContent;
+  const changed = renderHistory();
+  renderTail();
+  for (const d of log.querySelectorAll(".day")) { const t = dayLabel(d.dataset.at); if (d.textContent !== t) d.textContent = t; }
+  if ((changed || tail.textContent !== before) && (stick || first)) log.scrollTop = log.scrollHeight;
+}
+
+// ---- header + sidebar ----
+let lastKeys = {};
+const changed = (key, value) => { const s = JSON.stringify(value); if (lastKeys[key] === s) return false; lastKeys[key] = s; return true; };
+
+function renderHeader() {
+  const s = state;
+  document.title = $("name").textContent = name = s.name || "Pip";
+  msg.placeholder = `Message ${name}…`;
+  let html = "", text;
+  if (s.busy) { html = '<span class="dot" aria-hidden="true"></span>'; text = "Thinking…"; }
+  else if (s.terminalChat) text = "Chat open in Terminal: messages wait until you close it";
+  else if (!s.wakeJob) text = "Background wake-ups aren't installed";
+  else if (s.nextWake > Date.now()) { html = MOON; text = `Asleep · wakes ${dayLabel(s.nextWake).toLowerCase()} at ${clock(s.nextWake)}`; }
+  else { html = MOON; text = "Asleep · wakes in a few minutes"; }
+  if (changed("status", [html, text])) { $("status").innerHTML = html; $("status").append(el("span", null, text)); }
+  $("wake").disabled = s.busy;
+  $("lastError").hidden = !s.lastError;
+  if (s.lastError) $("lastError").textContent = `Last run failed (${when(s.lastError.at)}): ${s.lastError.message}`;
+}
+
+function renderSidebar(mem) {
+  const s = state;
+  const due = s.nextWake > Date.now();
+  if (changed("wake", [s.nextWake, s.wakeJob, due, dayLabel(s.nextWake ?? 0)])) {
+    const box = $("nextWake");
+    box.replaceChildren();
+    if (s.wakeJob) box.append(el("div", "big", due ? `${dayLabel(s.nextWake)}, ${clock(s.nextWake)}` : "In a few minutes"));
+    box.append(el("p", "note", !s.wakeJob
+      ? "Background wake-ups aren't installed, so it only answers when you message it."
+      : "It picks this itself: sooner when something is in motion, later when things are quiet."));
+  }
+  if (mem && changed("tasks", mem.tasks)) {
+    $("tasksTitle").textContent = `Open tasks · ${mem.tasks.length}`;
+    const list = el("ul", "plain");
+    for (const t of mem.tasks) list.append(el("li", "task", t));
+    $("tasks").replaceChildren(mem.tasks.length ? list : el("p", "note", "Nothing open."));
+  }
+  if (mem && changed("mems", mem.memories.map((m) => [m.name, m.description]))) {
+    $("memTitle").textContent = `Memory · ${mem.memories.length}`;
+    const list = el("ul", "plain");
+    for (const m of mem.memories) {
+      const li = el("li", "mem");
+      li.append(el("b", null, m.name), el("span", null, m.description ?? ""));
+      list.append(li);
+    }
+    $("mems").replaceChildren(mem.memories.length ? list : el("p", "note", "Nothing saved yet."));
+  }
+  const wakes = [];
+  items.forEach((x, i) => { if (x.role === "wake") wakes.push({ at: x.at, reply: items[i + 1]?.role === "bot" ? items[i + 1].text : "" }); });
+  const recent = wakes.slice(-5).reverse();
+  if (changed("recent", recent.map((w) => [when(w.at), w.reply]))) {
+    const list = el("ul", "plain");
+    for (const w of recent) {
+      const li = el("li", "recent");
+      li.append(el("span", "mono", when(w.at)), el("span", null, w.reply.split("\n")[0] || "No reply yet"));
+      list.append(li);
+    }
+    $("recent").replaceChildren(recent.length ? list : el("p", "note", "No wake-ups yet."));
+  }
+}
+
+// ---- polling ----
+async function poll() {
+  try {
+    const [s, h, mem] = await Promise.all([getState(), getHistory(), getMemory().catch(() => null)]);
+    state = s; items = h;
+    $("offline").hidden = true;
+    renderHeader();
+    renderLog();
+    renderSidebar(mem);
+  } catch {
+    $("offline").hidden = false;
+    if (changed("status", ["", "Offline"])) $("status").textContent = "Offline";
+  }
+}
+watch(poll);
+
+// ---- composer ----
+const grow = () => { msg.style.height = "auto"; msg.style.height = `${Math.min(msg.scrollHeight, 200)}px`; };
+msg.addEventListener("input", grow);
+msg.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("form").requestSubmit(); }
+});
+
+$("form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = msg.value.trim();
+  if (!text || pending) return;
+  $("formError").textContent = "";
+  pending = { text, sentAt: Date.now(), el: bubble({ role: "you", text, at: new Date().toISOString() }) };
+  pending.el.classList.add("pending");
+  msg.value = ""; grow();
+  renderTail();
+  log.scrollTop = log.scrollHeight;
+  try {
+    await sendMessage(text);
+  } catch (err) {
+    pending.el.remove(); pending = null;
+    renderTail();
+    if (!msg.value) { msg.value = text; grow(); }
+    $("formError").textContent = err.message;
+    msg.focus();
+  }
+});
+
+$("wake").addEventListener("click", async () => {
+  $("wake").disabled = true;
+  $("formError").textContent = "";
+  try { await wakeNow(); await poll(); }
+  catch (err) { $("formError").textContent = `Couldn't wake: ${err.message}`; $("wake").disabled = false; }
+});
+</script>
+</body>
+</html>

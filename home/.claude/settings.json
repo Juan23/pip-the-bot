@@ -1,0 +1,10 @@
+{
+  "permissions": { "defaultMode": "auto" },
+  "autoMemoryDirectory": "~/bot/memory",
+  "enabledPlugins": {
+    "ponytail@ponytail": false,
+    "codex@openai-codex": false,
+    "expo@claude-plugins-official": false
+  },
+  "disableAllHooks": true
+}

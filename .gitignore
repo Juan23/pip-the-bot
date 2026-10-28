@@ -1,0 +1,10 @@
+ui/Bot.app/
+.DS_Store
+# the bot's private files live in ~/bot, never here; ignored in case BOT_HOME ever points at this repo
+.session
+.next-wake
+.name
+.lock
+.telegram*
+log
+memory/

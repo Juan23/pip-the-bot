@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Checks every 5 min whether the bot wants to wake; `bot wake` exits instantly when it doesn't. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>local.bot</string>
+  <key>ProgramArguments</key><array><string>/Users/juan/bot/bot</string><string>wake</string></array>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>/Users/juan/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
+  <key>StartInterval</key><integer>300</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardErrorPath</key><string>/Users/juan/bot/launchd.err</string>
+</dict>
+</plist>

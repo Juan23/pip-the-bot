@@ -1,0 +1,52 @@
+#!/bin/zsh
+# Your bot. This script and the rest of the code live in the repo; the bot itself lives in its home, ~/bot
+# (CLAUDE.md and settings linked from home/, plus private memory/, log, conversation id and tokens that never enter git).
+#   bot          chat with it (the same conversation it lives in)
+#   bot "msg"    send one message, print the reply (programs use -m "msg", which is safe even when msg is "wake")
+#   bot wake     run by launchd every 5 min; the bot only wakes once its chosen time has come
+#   bot ui       open the menu bar app (ui/Bot.app)
+#   bot serve    run the interface server (Bot.app starts it)
+code=${0:A:h}
+cd ${BOT_HOME:-$HOME/bot}  # claude stores the conversation by working folder, so this must never change
+path=(~/.local/bin /opt/homebrew/bin $path)  # apps and launchd start us with a bare PATH
+case $1 in
+  ui) exec open $code/ui/Bot.app ;;
+  serve) exec bun $code/ui/server.ts ;;
+esac
+
+claude=(~/.local/bin/claude --model sonnet --chrome --autocompact 200k)  # flag, not settings: a resumed conversation ignores the settings model
+if [[ -f .session ]]; then
+  claude+=(--resume $(<.session))
+else
+  new=$(uuidgen | tr A-Z a-z)  # first run creates the one conversation the bot lives in
+  claude+=(--session-id $new)
+fi
+
+# lockf -k keeps .lock on disk: removing it lets a waiter and a newcomer lock different files and both run
+case $1 in
+  wake)
+    nw=$(cat .next-wake 2>/dev/null); [[ $nw == <-> ]] || nw=0  # missing or garbled: wake now
+    (( $(date +%s) < nw )) && exit 0
+    exec lockf -k -s -t 0 .lock ${0:A} wake-locked  # busy (Juan is chatting): skip; launchd checks again in 5 min
+    ;;
+  wake-locked)  # `bot wake`, holding the lock
+    echo $(( $(date +%s) + 3600 )) > .next-wake  # fallback if the bot doesn't pick a time
+    print "\n--- wake $(date '+%F %R')" >> log
+    $claude -p "[wake] It's $(date '+%A %F %R'). Follow 'When you wake up' in CLAUDE.md." >> log 2>&1
+    ;;
+  -m)
+    shift
+    lockf -k -s -t 1800 .lock $claude -p "$*"
+    ;;
+  '')
+    lockf -k -s -t 0 .lock true || echo "(bot is busy with something, waiting for it…)"
+    lockf -k -s -t 1800 .lock $claude
+    ;;
+  *)
+    lockf -k -s -t 0 .lock true || echo "(bot is busy with something, waiting for it…)" >&2
+    lockf -k -s -t 1800 .lock $claude -p "$*"
+    ;;
+esac
+st=$?
+[[ -n $new ]] && (( st == 0 )) && echo $new > .session  # only remember the conversation once it exists
+exit $st

@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pip's day</title>
+<link rel="stylesheet" href="./base.css">
+<style>
+  body { background: var(--surface); min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 0 16px; }
+  header, main, form, .banner { width: 100%; max-width: 760px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 28px 0 20px; border-bottom: 1px solid var(--line); }
+  .nav { width: 40px; height: 40px; border-radius: var(--radius); border: 1px solid var(--line-strong); background: var(--surface); display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+  .nav:disabled { opacity: 0.35; cursor: default; }
+  .titles { flex-grow: 1; display: flex; flex-direction: column; gap: 2px; min-width: 160px; }
+  .eyebrow, .kind { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+  .pill { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 14px; border-radius: 999px; background: var(--surface-2); font-size: 13px; color: var(--muted); }
+  .pill.busy { color: var(--accent-ink); background: var(--accent-soft); }
+  .banner { margin-top: 16px; padding: 10px 14px; border-radius: var(--radius); border: 1px solid var(--danger); color: var(--danger); font-size: 13.5px; }
+  .banner[hidden] { display: none; }
+  main { flex-grow: 1; padding: 32px 0 16px; display: flex; flex-direction: column; }
+  .entry { display: flex; gap: 16px; }
+  .time { width: 64px; flex-shrink: 0; text-align: right; padding-top: 3px; font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+  .rail { width: 12px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; }
+  .dot { width: 10px; height: 10px; margin-top: 6px; border-radius: 50%; background: var(--accent); }
+  .entry.wake .dot { border: 2px solid var(--accent); background: var(--surface); }
+  .entry.next .dot { border: 2px dashed var(--muted); background: var(--surface); }
+  .entry.pending .dot { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.3; } }
+  @media (prefers-reduced-motion: reduce) { .entry.pending .dot { animation: none; } }
+  .line { flex-grow: 1; width: 2px; margin-top: 6px; background: var(--line); }
+  .line.dashed { width: 0; background: none; border-left: 2px dashed var(--line-strong); }
+  .body { flex-grow: 1; min-width: 0; padding-bottom: 28px; display: flex; flex-direction: column; gap: 8px; }
+  .quote { margin: 0; padding-left: 10px; border-left: 2px solid var(--line-strong); color: var(--muted); font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .reply { font-size: 16px; line-height: 1.55; overflow-wrap: anywhere; }
+  .reply p, .reply ul { margin: 0 0 0.6em; } .reply > :last-child { margin-bottom: 0; }
+  .reply ul { padding-left: 1.2em; }
+  .muted { color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { padding: 4px 10px; border-radius: 999px; background: var(--accent-soft); font-size: 12.5px; color: var(--accent-ink); }
+  @media (max-width: 480px) { .entry { gap: 10px; } .time { width: 40px; font-size: 11.5px; } h1 { font-size: 22px; } .pill { order: 1; } }
+  .empty { color: var(--muted); text-align: center; padding: 48px 0; }
+  form { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; gap: 10px; padding: 16px 0 24px; background: var(--surface); }
+  textarea { flex: 1 1 0; min-width: 0; min-height: 48px; max-height: 40vh; padding: 13px 16px; border-radius: 12px; border: 1px solid var(--line-strong); background: var(--surface-2); font-size: 15px; resize: none; }
+  .send { height: 48px; padding: 0 20px; border-radius: 12px; border: 0; background: var(--accent); color: var(--on-accent); font-weight: 600; cursor: pointer; align-self: flex-end; }
+  .send:disabled { opacity: 0.6; cursor: default; }
+  #send-error { flex-basis: 100%; margin: 0; color: var(--danger); font-size: 13px; }
+  #send-error:empty { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <button type="button" class="nav" id="prev" aria-label="Previous day">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+  </button>
+  <div class="titles">
+    <div class="eyebrow" id="eyebrow">Pip's day</div>
+    <h1 id="title">Loading…</h1>
+  </div>
+  <div class="pill" id="pill" role="status"><span id="pill-text">Connecting…</span></div>
+  <button type="button" class="nav" id="next" aria-label="Next day">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+  </button>
+</header>
+<div class="banner" id="banner" role="alert" hidden></div>
+<main id="timeline" aria-live="polite"></main>
+<form id="composer">
+  <label for="msg" class="sr">Write to Pip</label>
+  <textarea id="msg" rows="1" placeholder="Write to Pip…"></textarea>
+  <button type="submit" class="send" id="send">Send</button>
+  <p id="send-error" role="alert"></p>
+</form>
+
+<script type="module">
+import { getState, getHistory, sendMessage, watch, toolLabel, clock, dayLabel, renderText } from "./api.js";
+
+const $ = (id) => document.getElementById(id);
+const dayKey = (d) => new Date(d).toLocaleDateString("en-CA"); // local YYYY-MM-DD
+const todayKey = () => dayKey(new Date());
+
+let state = null, history = [], offline = false, selected = null;
+let pending = []; // messages sent from this page that history doesn't show yet
+let lastHeader = "", lastTimeline = "";
+
+// Turns: a prompt (you/wake) plus the bot replies after it. Bot text with no prompt before it stands alone.
+function turns(items) {
+  const out = [];
+  for (const item of items) {
+    if (item.role === "bot" && out.length) out.at(-1).replies.push(item);
+    else out.push({ prompt: item.role === "bot" ? null : item, replies: item.role === "bot" ? [item] : [], at: item.at });
+  }
+  return out;
+}
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+function entry({ time, kind, cls, quote, html, muted, chips, line }) {
+  const row = el("article", `entry ${cls}`);
+  row.append(el("div", "time", time));
+  const rail = el("div", "rail");
+  rail.setAttribute("aria-hidden", "true");
+  rail.append(el("div", "dot"));
+  if (line) rail.append(el("div", `line ${line}`));
+  row.append(rail);
+  const body = el("div", "body");
+  body.append(el("div", "kind", kind));
+  if (quote) body.append(el("p", "quote", quote));
+  const reply = el("div", "reply");
+  if (html != null) reply.innerHTML = html; else reply.append(el("span", "muted", muted));
+  body.append(reply);
+  if (chips?.length) {
+    const box = el("div", "chips");
+    chips.forEach((c) => box.append(el("span", "chip", c)));
+    body.append(box);
+  }
+  row.append(body);
+  return row;
+}
+
+function render() {
+  const items = [...history, ...pending];
+  const days = [...new Set(items.map((i) => dayKey(i.at)))].sort();
+  if (!selected || !days.includes(selected)) selected = days.includes(todayKey()) || !days.length ? todayKey() : days.at(-1);
+  const isToday = selected === todayKey();
+  const idx = days.indexOf(selected);
+
+  // Header
+  let pill = "Connecting…", busy = false;
+  if (offline) pill = "Offline";
+  else if (state?.busy) { pill = "Thinking…"; busy = true; }
+  else if (state?.terminalChat) pill = "Chat open in Terminal";
+  else if (state && !state.wakeJob) pill = "Wake-ups not installed";
+  else if (state?.nextWake) pill = `Asleep until ${dayKey(state.nextWake) === todayKey() ? "" : dayLabel(state.nextWake) + " "}${clock(state.nextWake)}`;
+  else if (state) pill = "Idle";
+  const banner = offline ? "Can't reach Pip's server at 127.0.0.1:7377. Retrying…"
+    : state?.lastError ? `Something went wrong${state.lastError.at ? ` at ${clock(state.lastError.at)}` : ""}: ${state.lastError.message}` : "";
+  const header = JSON.stringify([selected, idx, days.length, pill, busy, banner, state?.name]);
+  if (header !== lastHeader) {
+    lastHeader = header;
+    const date = new Date(selected + "T12:00");
+    $("title").textContent = `${date.toLocaleDateString([], { weekday: "long" })}, ${date.toLocaleDateString([], { day: "numeric", month: "long" })}`;
+    $("eyebrow").textContent = `${state?.name ?? "Pip"}'s day · ${dayLabel(date)}`;
+    $("prev").disabled = idx <= 0;
+    $("next").disabled = idx === -1 || idx >= days.length - 1;
+    $("pill-text").textContent = pill;
+    $("pill").classList.toggle("busy", busy);
+    $("banner").textContent = banner;
+    $("banner").hidden = !banner;
+  }
+
+  // Timeline
+  const dayTurns = turns(items.filter((i) => dayKey(i.at) === selected));
+  const last = turns(items).at(-1);
+  const showNext = isToday && state && !offline;
+  const timeline = JSON.stringify([selected, dayTurns, last?.at, showNext && [state.nextWake, state.wakeJob, state.terminalChat]]);
+  if (timeline === lastTimeline) return;
+  lastTimeline = timeline;
+
+  const nodes = dayTurns.map((t, i) => {
+    const wake = t.prompt?.role === "wake";
+    const reply = t.replies.map((r) => r.text).join("\n\n");
+    const chips = [...new Set(t.replies.flatMap((r) => r.tools ?? []).map(toolLabel).filter(Boolean))];
+    const waiting = !t.replies.length && t.prompt === last?.prompt;
+    const isLast = i === dayTurns.length - 1;
+    return entry({
+      time: clock(t.at),
+      kind: !t.prompt ? "Note from Pip" : wake ? "Woke up on its own" : "Chat with Juan",
+      cls: `${wake || !t.prompt ? "wake" : "chat"}${waiting ? " pending" : ""}`,
+      quote: t.prompt?.role === "you" ? t.prompt.text : null,
+      html: reply.trim() ? renderText(reply) : null,
+      muted: waiting ? (state?.terminalChat ? "Waiting for the Terminal chat to close…" : "Thinking…") : "No reply recorded.",
+      chips,
+      line: isLast ? (showNext ? "dashed" : null) : "solid",
+    });
+  });
+  if (showNext && !state.wakeJob) {
+    nodes.push(entry({ time: "", kind: "Wake-ups", cls: "next", muted: "Wake-ups aren't installed, so Pip only acts when you write." }));
+  } else if (showNext && state.nextWake) {
+    nodes.push(entry({ time: clock(state.nextWake), kind: `${dayLabel(state.nextWake)} · next wake-up`, cls: "next", muted: "Pip will wake up on its own and check its tasks." }));
+  }
+  if (!dayTurns.length) nodes.unshift(el("p", "empty", offline && !history.length ? "Nothing to show until the server is reachable." : "Nothing here yet. Write to Pip below to start the day."));
+  $("timeline").replaceChildren(...nodes);
+}
+
+async function poll() {
+  try {
+    [state, history] = await Promise.all([getState(), getHistory(1000)]);
+    offline = false;
+    // Drop optimistic entries once the server has recorded them.
+    pending = pending.filter((p) => !history.some((h) => h.role === "you" && h.text.trim() === p.text.trim() && new Date(h.at) >= new Date(p.at) - 60e3)
+      && !(state.lastError?.at >= Date.parse(p.at))); // a failed run never records the message; the banner shows why
+  } catch {
+    offline = true;
+  }
+  render();
+}
+
+$("prev").addEventListener("click", () => { const d = [...new Set([...history, ...pending].map((i) => dayKey(i.at)))].sort(); selected = d[d.indexOf(selected) - 1] ?? selected; render(); });
+$("next").addEventListener("click", () => { const d = [...new Set([...history, ...pending].map((i) => dayKey(i.at)))].sort(); selected = d[d.indexOf(selected) + 1] ?? selected; render(); });
+
+const msg = $("msg");
+const grow = () => { msg.style.height = "auto"; msg.style.height = msg.scrollHeight + 2 + "px"; };
+msg.addEventListener("input", grow);
+msg.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("composer").requestSubmit(); }
+});
+$("composer").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = msg.value.trim();
+  if (!text || $("send").disabled) return;
+  $("send").disabled = true;
+  $("send-error").textContent = "";
+  try {
+    await sendMessage(text);
+    pending.push({ role: "you", text, at: new Date().toISOString() });
+    msg.value = "";
+    grow();
+    selected = todayKey();
+    render();
+    window.scrollTo({ top: document.body.scrollHeight });
+  } catch (err) {
+    $("send-error").textContent = `Couldn't send: ${err.message}`;
+  } finally {
+    $("send").disabled = false;
+    msg.focus();
+  }
+});
+
+watch(poll);
+</script>
+</body>
+</html>
