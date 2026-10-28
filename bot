@@ -12,6 +12,7 @@ code=${0:A:h}
 cd ${BOT_HOME:-$HOME/bot}  # claude stores the conversation by working folder, so this must never change
 path=(~/.local/bin /opt/homebrew/bin $path)  # apps and launchd start us with a bare PATH
 export LC_ALL=C  # decimal points, not commas, in the numbers logged below
+unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN  # bill the Claude subscription login, never API credits
 typeset -F SECONDS
 
 # events.jsonl: one JSON line per turn, worker run or approval; `bot stats` summarizes it
@@ -34,7 +35,8 @@ measured() {  # measured <command...>: runs it, then sets $st and $stats (exit, 
 }
 
 case $1 in
-  ui) exec open $code/ui/Bot.app ;;
+  # A clean environment, as Finder gives: open passes the caller's on, and a Claude Code shell's carries its API key and session.
+  ui) exec env -i HOME=$HOME USER=$USER LOGNAME=$USER SHELL=/bin/zsh TMPDIR=$(getconf DARWIN_USER_TEMP_DIR) PATH=/usr/bin:/bin:/usr/sbin:/sbin open $code/ui/Bot.app ;;
   serve) exec bun $code/ui/server.ts ;;
   stats) exec bun $code/stats.ts ${2:-1} ;;
   battery) battery; exit ;;  # for the worker script's logging
