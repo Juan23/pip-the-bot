@@ -4,14 +4,49 @@
 #   bot          chat with it (the same conversation it lives in)
 #   bot "msg"    send one message, print the reply (programs use -m "msg", which is safe even when msg is "wake")
 #   bot wake     run by launchd every 5 min; the bot only wakes once its chosen time has come
+#   bot stats [days]        what the bot and its workers cost: turns, time, CPU, tokens, battery (default: last day)
+#   bot log <kind> <text>   add a line to the event log, e.g. bot log approval "merge PR #3, approved"
 #   bot ui       open the menu bar app (ui/Bot.app)
 #   bot serve    run the interface server (Bot.app starts it)
 code=${0:A:h}
 cd ${BOT_HOME:-$HOME/bot}  # claude stores the conversation by working folder, so this must never change
 path=(~/.local/bin /opt/homebrew/bin $path)  # apps and launchd start us with a bare PATH
+export LC_ALL=C  # decimal points, not commas, in the numbers logged below
+unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN  # bill the Claude subscription login, never API credits
+typeset -F SECONDS
+
+# events.jsonl: one JSON line per turn, worker run or approval; `bot stats` summarizes it
+event() { local kind=$1; shift; jq -nc --arg at "$(date -u +%FT%TZ)" --arg kind $kind "$@" '$ARGS.named' >> events.jsonl; }
+battery() {  # prints "<percent> <battery|ac>", or "null ac" on a Mac without a battery
+  local b=$(pmset -g batt 2>/dev/null) pct
+  pct=$(print -r -- $b | grep -o '[0-9]*%' | head -1 | tr -d %)
+  [[ $b == *"Battery Power"* ]] && print ${pct:-null} battery || print ${pct:-null} ac
+}
+measured() {  # measured <command...>: runs it, then sets $st and $stats (exit, time, CPU, battery) for the event log
+  local times=$(mktemp) t0=$SECONDS b0 b1 power
+  read b0 power <<< "$(battery)"
+  /usr/bin/time -p -o $times "$@"
+  st=$?
+  read b1 _ <<< "$(battery)"
+  stats=(--argjson exit $st --argjson secs $(printf %.1f $((SECONDS - t0)))
+    --argjson cpu $(awk '/^(user|sys)/ {s += $2} END {printf "%.1f", s + 0}' $times)
+    --argjson battery_start $b0 --argjson battery_end $b1 --arg power $power)
+  rm -f $times
+}
+
 case $1 in
-  ui) exec open $code/ui/Bot.app ;;
+  # A clean environment, as Finder gives: open passes the caller's on, and a Claude Code shell's carries its API key and session.
+  ui) exec env -i HOME=$HOME USER=$USER LOGNAME=$USER SHELL=/bin/zsh TMPDIR=$(getconf DARWIN_USER_TEMP_DIR) PATH=/usr/bin:/bin:/usr/sbin:/sbin open $code/ui/Bot.app ;;
   serve) exec bun $code/ui/server.ts ;;
+  stats) exec bun $code/stats.ts ${2:-1} ;;
+  battery) battery; exit ;;  # for the worker script's logging
+esac
+
+# A worker must never speak as Juan (or log as Pip): `worker` marks every process of a run with PIP_WORKER.
+[[ -n $PIP_WORKER ]] && { print -u2 "bot: workers can't message Pip; put it in your report"; exit 1; }
+
+case $1 in
+  log) event $2 --arg text "${*[3,-1]}"; exit ;;
 esac
 
 claude=(~/.local/bin/claude --model sonnet --chrome --autocompact 200k)  # flag, not settings: a resumed conversation ignores the settings model
@@ -27,26 +62,49 @@ case $1 in
   wake)
     nw=$(cat .next-wake 2>/dev/null); [[ $nw == <-> ]] || nw=0  # missing or garbled: wake now
     (( $(date +%s) < nw )) && exit 0
-    exec lockf -k -s -t 0 .lock ${0:A} wake-locked  # busy (Juan is chatting): skip; launchd checks again in 5 min
-    ;;
-  wake-locked)  # `bot wake`, holding the lock
-    echo $(( $(date +%s) + 3600 )) > .next-wake  # fallback if the bot doesn't pick a time
-    print "\n--- wake $(date '+%F %R')" >> log
-    $claude -p "[wake] It's $(date '+%A %F %R'). Follow 'When you wake up' in CLAUDE.md." >> log 2>&1
+    # busy (Juan is chatting): skip; launchd checks again in 5 min
+    exec lockf -k -s -t 0 .lock ${0:A} _turn wake "[wake] It's $(date '+%A %F %R'). Follow 'When you wake up' in CLAUDE.md."
     ;;
   -m)
     shift
-    lockf -k -s -t 1800 .lock $claude -p "$*"
+    exec lockf -k -s -t 1800 .lock ${0:A} _turn auto "$*"
+    ;;
+  _turn)  # one headless turn, holding the lock: prints the reply and logs what it cost
+    kind=$2 prompt=$3
+    if [[ $kind == wake ]]; then
+      echo $(( $(date +%s) + 3600 )) > .next-wake  # fallback if the bot doesn't pick a time
+      print "\n--- wake $(date '+%F %R')" >> log
+    else
+      case $prompt in
+        ("[telegram] "*) kind=telegram ;;
+        ("[worker "*) kind=worker-report ;;
+        (*) kind=chat ;;
+      esac
+    fi
+    out=$(mktemp)
+    measured $claude -p --output-format json "$prompt" > $out
+    reply=$(jq -r '.result // empty' $out 2>/dev/null)
+    if [[ -z $reply ]]; then cat $out >&2
+    elif [[ $kind == wake ]]; then print -r -- $reply >> log
+    else print -r -- $reply
+    fi
+    [[ -s $out ]] && jq -c --arg at "$(date -u +%FT%TZ)" --arg kind $kind $stats '$ARGS.named + {
+      turns: .num_turns, cost_usd: .total_cost_usd, denials: (.permission_denials | length),
+      tokens_in: (.usage | .input_tokens + .cache_read_input_tokens + .cache_creation_input_tokens),
+      tokens_cached: .usage.cache_read_input_tokens,
+      tokens_out: .usage.output_tokens}' $out >> events.jsonl 2>/dev/null || event $kind $stats
+    rm -f $out
     ;;
   '')
     lockf -k -s -t 0 .lock true || echo "(bot is busy with something, waiting for it…)"
-    lockf -k -s -t 1800 .lock $claude
+    measured lockf -k -s -t 1800 .lock $claude
+    event terminal-chat $stats  # an interactive session reports no tokens or cost
     ;;
   *)
     lockf -k -s -t 0 .lock true || echo "(bot is busy with something, waiting for it…)" >&2
-    lockf -k -s -t 1800 .lock $claude -p "$*"
+    exec lockf -k -s -t 1800 .lock ${0:A} _turn auto "$*"
     ;;
 esac
-st=$?
+st=${st:-$?}
 [[ -n $new ]] && (( st == 0 )) && echo $new > .session  # only remember the conversation once it exists
 exit $st

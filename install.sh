@@ -17,6 +17,7 @@ link CLAUDE.md $code/home/CLAUDE.md
 link .claude/settings.json $code/home/.claude/settings.json
 link bot $code/bot
 link notify $code/notify
+link worker $code/worker
 
 mkdir -p ~/.local/bin && ln -sfn $home/bot ~/.local/bin/bot
 $code/ui/mac/build.sh

@@ -175,7 +175,7 @@ function wakeNote(wake, reply) {
   n.insertAdjacentHTML("afterbegin", MOON.replace('width="13" height="13"', 'width="14" height="14"'));
   const body = el("div");
   const text = el("div", "text");
-  text.append(`Woke on its own at ${clock(wake.at)} · `);
+  text.append(`${wake.via === "worker" ? "Worker update" : "Woke on its own"} at ${clock(wake.at)} · `);
   const r = el("span");
   if (reply) r.innerHTML = renderText(reply.text || "working…"); else r.textContent = "working…";
   text.append(r);

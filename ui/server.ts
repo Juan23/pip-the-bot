@@ -8,6 +8,8 @@ const PORT = 7377;
 const UI = import.meta.dir;
 const BOT = process.env.BOT_HOME || join(process.env.HOME!, "bot"); // the bot's home: conversation id, memory, private files
 const SCRIPT = join(UI, "..", "bot");
+const NOTIFY = join(UI, "..", "notify");
+const WORKER_PREFIX = "[worker ";
 const HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 const ORIGINS = new Set([...HOSTS].map((h) => `http://${h}`));
 const PAGES: Record<string, string> = { "/": "window.html", "/popover": "popover.html", "/journal": "journal.html" };
@@ -57,7 +59,8 @@ async function state() {
   };
 }
 
-type Item = { role: "you" | "wake" | "bot"; text: string; at: string; tools?: string[]; via?: "telegram" };
+// role "wake" is any turn Juan didn't start: Pip waking itself, or (via "worker") a worker reporting in
+type Item = { role: "you" | "wake" | "bot"; text: string; at: string; tools?: string[]; via?: "telegram" | "worker" };
 
 function promptText(content: unknown): string | null {
   if (typeof content === "string") return content;
@@ -80,6 +83,7 @@ async function history(limit: number): Promise<Item[]> {
       if (!text || text.startsWith("<command-") || text.startsWith("<local-command-")) continue; // tool results, slash-command echoes
       reply = null;
       if (text.startsWith(TELEGRAM_PREFIX)) items.push({ role: "you", text: text.slice(TELEGRAM_PREFIX.length), at: e.timestamp, via: "telegram" });
+      else if (text.startsWith(WORKER_PREFIX)) items.push({ role: "wake", text, at: e.timestamp, via: "worker" });
       else items.push({ role: text.startsWith("[wake]") ? "wake" : "you", text, at: e.timestamp });
     } else if (e.type === "assistant" && Array.isArray(e.message?.content)) {
       for (const b of e.message.content) {
@@ -144,15 +148,39 @@ async function serveStatic(pathname: string) {
     : new Response("Not found", { status: 404 });
 }
 
+// Whether the process on the other end of a local connection was started by a running worker: a run's first process
+// (workers/<name>/pid holds "<pid> <start time>") is among its ancestors. Claude Code gives each command its own
+// process group, and ps can't read the environment of system tools like curl, so ancestry is what ties a command
+// to its run. Workers must never speak as Juan: the Origin check stops browsers, not local programs.
+async function fromWorker(port: number) {
+  const dir = join(BOT, "workers");
+  const ids = await Promise.all((await readdir(dir).catch(() => [])).map((n) => readText(join(dir, n, "pid"))));
+  const runs = new Map(ids.filter((t): t is string => !!t).map((t) => [t.split(" ")[0], t.split(" ").slice(1).join(" ")]));
+  if (!runs.size) return false;
+  const ps = async (field: string, pid: string) =>
+    (await new Response(Bun.spawn(["ps", "-o", `${field}=`, "-p", pid], { stdout: "pipe", stderr: "ignore" }).stdout).text()).trim();
+  const lsof = Bun.spawn(["lsof", "-nP", "-t", `-iTCP@127.0.0.1:${port}`], { stdout: "pipe", stderr: "ignore" });
+  for (const peer of (await new Response(lsof.stdout).text()).split("\n")) {
+    if (!peer || Number(peer) === process.pid) continue;
+    for (let pid = peer; pid && pid !== "1"; pid = await ps("ppid", pid)) {
+      // the run itself, not a later process reusing its pid (after a reboot, say)
+      if (runs.has(pid) && (await ps("lstart", pid)).split(/\s+/).join(" ") === runs.get(pid)) return true;
+    }
+  }
+  return false;
+}
+
 Bun.serve({
   hostname: "127.0.0.1",
   port: PORT,
-  async fetch(req) {
+  async fetch(req, server) {
     // The API drives an agent with your files and browser: only pages served from here may use it.
     if (!HOSTS.has(req.headers.get("host") ?? "")) return new Response("Forbidden", { status: 403 }); // DNS rebinding
     const { pathname, searchParams } = new URL(req.url);
     if (req.method === "POST") {
       if (!ORIGINS.has(req.headers.get("origin") ?? "")) return json({ error: "Forbidden origin" }, 403); // other sites
+      const peer = server.requestIP(req);
+      if (peer && (await fromWorker(peer.port))) return json({ error: "Workers can't message Pip; put it in your report." }, 403);
       if (pathname === "/api/wake") {
         const s = await state();
         if (s.terminalChat) return json({ error: `Close the Terminal chat first: ${s.name} can't wake up while it's open.` }, 409);
@@ -162,6 +190,17 @@ Bun.serve({
       if (pathname === "/api/message") {
         const body = await req.json().catch(() => null);
         const rejected = enqueue(typeof body?.text === "string" ? body.text.trim() : "");
+        return rejected ? json({ error: rejected.error }, rejected.status) : json({ queued }, 202);
+      }
+      // A worker reporting in (from the `worker` script). Pip's reply is for Juan, wherever he is: Mac and Telegram.
+      if (pathname === "/api/event") {
+        const body = await req.json().catch(() => null);
+        const text = typeof body?.text === "string" ? body.text.trim() : "";
+        if (!text.startsWith(WORKER_PREFIX)) return json({ error: `Events must start with "${WORKER_PREFIX}".` }, 400);
+        const rejected = enqueue(text, (result) => {
+          Bun.spawn([NOTIFY, "reply" in result ? result.reply || "Pip read a worker report and had nothing to add."
+            : `Couldn't handle a worker report: ${result.error}`]);
+        });
         return rejected ? json({ error: rejected.error }, rejected.status) : json({ queued }, 202);
       }
       return json({ error: "Not found" }, 404);

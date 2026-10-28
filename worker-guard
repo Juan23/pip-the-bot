@@ -1,0 +1,14 @@
+#!/bin/zsh
+# PreToolUse hook for workers (wired in by `worker` via worker-settings.json). Permission rules match command
+# prefixes, so `git push origin pip/x:main` would pass a "pip/" rule; this checks the whole command instead.
+# Allows exactly one kind of push, a worker's own branch ($1, filled in by `worker`); blocks other pushes, merges,
+# and talking to Pip as Juan.
+cmd=$(jq -r '.tool_input.command // empty')
+[[ -z $cmd ]] && exit 0
+decide() { jq -nc --arg d $1 --arg r "$2" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: $d, permissionDecisionReason: $r}}'; exit 0 }
+
+[[ -n $1 && $cmd == "git push "(-u |--set-upstream |)"origin $1" ]] && decide allow "pushing the worker's own branch"
+[[ $cmd == *git* && $cmd == *push* ]] && decide deny "Workers may only push their own branch, exactly: git push -u origin $1. Put anything else in your report for Pip."
+[[ $cmd =~ 'gh +(pr +merge|api .*merge)' ]] && decide deny "Merging needs Juan's approval through Pip. Say so in your report."
+[[ $cmd == *7377* || $cmd =~ '(^|[;&|(] *|/)(bot|notify)( |$)' ]] && decide deny "Workers can't message Pip or Juan directly. Put it in your report."
+exit 0

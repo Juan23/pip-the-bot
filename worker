@@ -1,0 +1,212 @@
+#!/bin/zsh
+# Pip's workers: headless Claude Code runs that do project work in their own git worktree while Pip stays free to chat.
+#   worker start <name> <project folder> <task>   new worker on branch pip/<name>, checked out in ~/bot/worktrees/<name>
+#   worker resume <name> <message>                 continue a finished worker's session with a new instruction
+#   worker stop <name>                             stop a running worker
+#   worker list                                    every worker: state, project, branch, first line of its report
+#   worker show <name>                             its last report, commits, uncommitted files, and how to open it
+#   worker ack <name>                              mark a finished worker as reported to Juan
+#   worker remove <name>                           delete its worktree (refuses while running or with uncommitted work)
+# A finished worker reports to Pip through the interface server's queue; if that's down it sets Pip to wake now,
+# and Pip finds it with `worker list`. The run loop follows shipmaster's run-ship.sh (hang kill, quiet-after-reply exit).
+# Model and effort come from ~/.claude/shipmaster-defaults (model=..., effort=...), the one knob for headless work.
+self=${0:A}  # this script (inside a function $0 is the function's name)
+code=${self:h}
+home=${${BOT_HOME:-$HOME/bot}:A}  # resolved, to compare with resolved project folders
+start_dir=$PWD  # a relative project folder means relative to where `worker` was called, not ~/bot
+path=(~/.local/bin /opt/homebrew/bin $path)
+export LC_ALL=C  # decimal points, not commas, in the numbers logged below
+typeset -F SECONDS
+MAX_RUNNING=2
+IDLE_KILL=7200   # no output for 2 h: hung, stop it
+DONE_QUIET=900   # replied, then 15 min of quiet (something it started holds it open): finished, stop what's left
+cd $home && mkdir -p workers worktrees
+
+die() { print -u2 "worker: $*"; exit 1 }
+# absolute paths: a run cd's into its worktree, where workers/ doesn't exist
+meta() { jq -r ".$2 // empty" $home/workers/$1/meta.json }
+state() { cat $home/workers/$1/state 2>/dev/null }  # running | done | waiting | failed | stopped | removed
+pid_of() { local pid _; read pid _ < $home/workers/$1/pid 2>/dev/null; print $pid }
+alive() {  # the pid file holds "<pid> <start time>": after a reboot the same pid can belong to someone else
+  local pid started
+  read pid started < $home/workers/$1/pid 2>/dev/null || return 1
+  [[ -n $pid && $(print $(ps -o lstart= -p $pid 2>/dev/null)) == $started ]]  # print: ps pads it, the file doesn't
+}
+running() {  # counts a run that hasn't written its pid yet, so two quick starts can't both slip under the cap
+  local n=0 w
+  for w in $home/workers/*(N/); do
+    [[ $(state ${w:t}) == running ]] && { [[ ! -f $w/pid ]] || alive ${w:t} } && (( n++ ))
+  done
+  print $n
+}
+exists() { [[ -f $home/workers/$1/meta.json ]] || die "no worker named '$1' (see: worker list)" }
+# Runs a command in a new session (its own process group, pgid = its pid): Claude Code's turn-end cleanup in Pip's
+# shell can't take a worker down with it, and `kill -- -<pid>` stops the run and every tool it started.
+DETACH=(/usr/bin/python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])')
+
+launch() {  # launch <name> <prompt> <--session-id|--resume>: one detached run
+  local runs=(workers/$1/run-*.log(N)) k
+  k=$(( $#runs + 1 ))
+  print running > workers/$1/state
+  rm -f workers/$1/reported workers/$1/stopping workers/$1/pid
+  $DETACH $self _run $1 $k $3 $2 </dev/null >/dev/null 2>&1 &!
+  print "started $1 (run $k) in $(meta $1 dir)"
+}
+
+# queue it for Pip, or make Pip wake and find it. Pip acks once Juan is told: queued isn't told, the turn can still fail.
+report_to_pip() {  # report_to_pip <text>
+  local text=$1 base=http://127.0.0.1:7377
+  curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST -H "Origin: $base" -H 'Content-Type: application/json' \
+    -d "$(jq -nc --arg text $text '{text: $text}')" $base/api/event | grep -q 202 || echo 0 > $home/.next-wake
+}
+
+case $1 in
+  start)
+    name=$2 task=${*[4,-1]}
+    [[ $3 == /* ]] && project=$3 || project=$start_dir/$3
+    project=${project:A}
+    [[ $name =~ '^[a-z0-9][a-z0-9-]*$' ]] || die "name must be lowercase letters, digits and dashes"
+    [[ -e workers/$name ]] && die "a worker named $name already exists"
+    [[ -d $project ]] || die "no folder $project"
+    [[ $project == $home || $project == $home/* ]] && die "$project is Pip's home, not a project"
+    [[ -n $task ]] || die "no task given"
+    (( $(running) < MAX_RUNNING )) || die "$MAX_RUNNING workers are already running; wait for one or stop one"
+    # unattended work always goes on its own branch in its own checkout, never straight into a folder
+    repo=$(git -C $project rev-parse --show-toplevel 2>/dev/null) || die "$project isn't in a git repo; workers only work on a branch of one"
+    dir=$home/worktrees/$name branch=pip/$name
+    # branch from the default branch when the repo has one, not from whatever the main folder has checked out
+    base=$(git -C $repo symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)
+    git -C $repo worktree add -q -b $branch $dir ${base:-HEAD} || die "couldn't create a worktree for $repo"
+    mkdir -p workers/$name
+    jq -n --arg project $repo --arg dir $dir --arg branch $branch --arg session $(uuidgen | tr A-Z a-z) \
+      --arg task $task --arg created "$(date -u +%FT%TZ)" '$ARGS.named' > workers/$name/meta.json
+    launch $name "Main project folder (read from it, never change it): $repo
+Your folder: $dir, on branch $branch
+Worker name: $name
+
+Task:
+$task" --session-id
+    ;;
+
+  resume)
+    name=$2 msg=${*[3,-1]}
+    exists $name
+    [[ -n $msg ]] || die "no message given"
+    [[ $(state $name) == removed ]] && die "$name was removed"
+    { [[ $(state $name) == running ]] || alive $name } && die "$name is still running: send it a message, or stop it first"
+    (( $(running) < MAX_RUNNING )) || die "$MAX_RUNNING workers are already running; wait for one or stop one"
+    launch $name $msg --resume
+    ;;
+
+  stop)
+    exists $2
+    alive $2 || die "$2 isn't running"
+    touch workers/$2/stopping
+    kill -- -$(pid_of $2)  # the run's process group: time and claude, which stops the tools it started
+    print "stopping $2"
+    ;;
+
+  list)
+    for w in workers/*(N/); do
+      n=${w:t} s=$(state $n)
+      [[ $s == running && ! -f $w/pid ]] && s=starting  # the run writes its pid a moment after launch
+      [[ $s == running ]] && ! alive $n && s=failed
+      line=$(jq -r '.result // empty' $w/last.json 2>/dev/null | head -1 | cut -c1-90)
+      note=; [[ $s != (running|starting|removed) && ! -f $w/reported ]] && note=" (not reported to Juan)"
+      [[ $s == running ]] && sock=$(ls /tmp/cc-socks/$(pgrep -P $(pid_of $n) | head -1).sock 2>/dev/null) \
+        && note=" message it: uds:$sock"
+      print "$n  $s$note\n  ${$(meta $n project):t} ${$(meta $n branch):-(no branch)}  started $(meta $n created)\n  $line"
+    done
+    [[ -n $(print workers/*(N/)) ]] || print "no workers"
+    ;;
+
+  show)
+    exists $2
+    dir=$(meta $2 dir) branch=$(meta $2 branch)
+    print "$2: $(state $2), $(meta $2 project) ${branch:-(no branch)}\nTask: $(meta $2 task)\n\nLast report:"
+    jq -r '.result // "(none yet)"' workers/$2/last.json 2>/dev/null || print "(none yet)"
+    if [[ -n $branch && -d $dir ]]; then
+      base=$(git -C $dir merge-base HEAD "$(git -C "$(meta $2 project)" rev-parse HEAD)" 2>/dev/null)
+      print "\nCommits:"; git -C $dir log --oneline ${base:+$base..}HEAD | head -20
+      print "\nUncommitted:"; git -C $dir status --short | head -20
+    fi
+    print "\nOpen it: cd $dir && claude --resume $(meta $2 session)"
+    ;;
+
+  ack)
+    exists $2; touch workers/$2/reported
+    ;;
+
+  remove)
+    exists $2
+    alive $2 && die "$2 is running; stop it first"
+    dir=$(meta $2 dir)
+    if [[ -n $(meta $2 branch) && -d $dir ]]; then
+      [[ -z $(git -C $dir status --porcelain) ]] || die "$2 has uncommitted work in $dir; commit or discard it first"
+      git -C "$(meta $2 project)" worktree remove $dir || die "couldn't remove the worktree $dir"
+    fi
+    print removed > workers/$2/state
+    print "removed $2's worktree; its branch $(meta $2 branch) is kept"
+    ;;
+
+  _run)  # _run <name> <k> <--session-id|--resume> <prompt>: one supervised run, detached by launch
+    name=$2 k=$3 how=$4 prompt=$5 w=$home/workers/$2
+    log=$w/run-$k.log times=$w/run-$k.times t0=$SECONDS
+    defaults=~/.claude/shipmaster-defaults
+    model=$(sed -n 's/^model=//p' $defaults 2>/dev/null | tail -1)
+    effort=$(sed -n 's/^effort=//p' $defaults 2>/dev/null | tail -1)
+    read b0 power <<< "$($code/bot battery)"
+    cd "$(meta $name dir)" || { print failed > $w/state; report_to_pip "[worker $name] failed: its folder is gone"; exit 1; }
+    caffeinate -i -w $$ &!  # keep the Mac from sleeping while this worker runs
+    : >> $log
+    # Only the project's own settings plus worker-settings.json: Juan's global allow-list (deploys, pushes to
+    # databases) is for his own sessions, not for unattended workers. The guard hook gets its path filled in here, and
+    # Pip's own CLAUDE.md is left out: worker folders sit under Pip's home, so Claude Code would load it as theirs.
+    settings=$(jq -c --arg guard "${(q)code}/worker-guard $(meta $name branch)" --arg pip $home/CLAUDE.md \
+      '.hooks.PreToolUse[0].hooks[0].command = $guard | .claudeMdExcludes = [$pip]' $code/worker-settings.json)
+    # CLAUDECODE is unset because claude refuses to start inside another session; the API key and token so it bills the subscription, never API credits.
+    # PIP_WORKER marks every process of the run, so `bot` and `notify` refuse them.
+    $DETACH /usr/bin/time -p -o $times env -u CLAUDECODE -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN PIP_WORKER=$name claude -p --output-format stream-json --verbose \
+      --model ${model:-claude-opus-5-5} --effort ${effort:-medium} $how "$(meta $name session)" \
+      --no-chrome --permission-mode auto --permission-prompts none \
+      --setting-sources project,local --settings $settings --append-system-prompt "$(<$code/worker-rules.md)" \
+      $prompt >> $log 2>&1 &
+    pid=$!
+    print $pid $(ps -o lstart= -p $pid) > $w/pid
+    code_=
+    while kill -0 $pid 2>/dev/null; do
+      sleep 10
+      quiet=$(( $(date +%s) - $(date -r $log +%s) ))
+      # replied but still alive: something it started holds it open; stop it so a resume never shares the session
+      if (( quiet >= DONE_QUIET )) && grep -q '"type":"result"' $log; then kill -- -$pid 2>/dev/null; code_=0; break; fi
+      if (( quiet >= IDLE_KILL )); then kill -- -$pid 2>/dev/null; code_=124; break; fi
+    done
+    if [[ -z $code_ ]]; then wait $pid 2>/dev/null; code_=$?; fi
+    grep '"type":"result"' $log | tail -1 > $w/last.json
+    result=$(jq -r '.result // empty' $w/last.json 2>/dev/null)
+    if [[ -f $w/stopping ]]; then s=stopped
+    elif (( code_ == 124 )); then s=failed result="No output for $((IDLE_KILL / 60)) minutes, so it was stopped as hung."
+    elif [[ -z $result ]] || jq -e '.is_error' $w/last.json >/dev/null 2>&1; then s=failed result=${result:-$(tail -c 1500 $log)}
+    elif [[ $result == *"waiting on Juan:"* ]]; then s=waiting
+    else s=done
+    fi
+    print $s > $w/state
+    read b1 _ <<< "$($code/bot battery)"
+    secs=$(printf %.0f $((SECONDS - t0)))
+    cpu=$(awk '/^(user|sys)/ {s += $2} END {printf "%.1f", s + 0}' $times 2>/dev/null); cpu=${cpu:-0}
+    jq -nc --arg at "$(date -u +%FT%TZ)" --arg kind worker-run --arg name $name --argjson run $k --arg state $s \
+      --argjson exit $code_ --argjson secs $secs --argjson cpu $cpu --argjson battery_start $b0 --argjson battery_end $b1 \
+      --arg power $power --arg project "$(meta $name project)" \
+      '$ARGS.named + ((input? // {}) | {turns: .num_turns, cost_usd: .total_cost_usd,
+        denials: ((.permission_denials // []) | length),
+        tokens_in: ((.usage // {}) | .input_tokens + .cache_read_input_tokens + .cache_creation_input_tokens),
+        tokens_cached: .usage.cache_read_input_tokens, tokens_out: .usage.output_tokens})' $w/last.json >> $home/events.jsonl
+    branch=$(meta $name branch)
+    report_to_pip "[worker $name] $s after $((secs / 60)) min, $(meta $name project)${branch:+ on branch $branch}. Its report:
+${result[1,3000]}"
+    ;;
+
+  *)
+    sed -n '2,9p' $self | sed 's/^# \{0,1\}//'
+    ;;
+esac

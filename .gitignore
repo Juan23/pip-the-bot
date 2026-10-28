@@ -8,3 +8,8 @@ ui/Bot.app/
 .telegram*
 log
 memory/
+events.jsonl
+approvals.md
+workers/
+worktrees/
+.claude/worktrees/

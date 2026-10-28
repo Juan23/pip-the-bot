@@ -1,0 +1,23 @@
+{
+  "attribution": { "commit": "", "pr": "", "sessionUrl": false },
+  "permissions": {
+    "deny": [
+      "Bash(git push origin main:*)",
+      "Bash(git push origin master:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git -C:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh repo:*)",
+      "Bash(gh release:*)",
+      "Bash(npm publish:*)",
+      "Bash(supabase db push:*)",
+      "Bash(supabase functions deploy:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "worker-guard (path filled in by the worker script)" }] }
+    ]
+  }
+}

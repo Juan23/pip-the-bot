@@ -1,6 +1,7 @@
 #!/bin/zsh
 # Tell Juan something now: a Mac notification, plus a Telegram message once Telegram is set up.
 #   ./notify "short message"
+[[ -n $PIP_WORKER ]] && { print -u2 "notify: workers can't message Juan; put it in your report"; exit 1; }  # set by `worker`
 cd ${BOT_HOME:-$HOME/bot}
 title=$(cat .name 2>/dev/null || echo bot)
 # message passed as an argument, never pasted into the script, so quotes in it can't break out
