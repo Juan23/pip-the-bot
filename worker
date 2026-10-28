@@ -102,7 +102,7 @@ $task" --session-id
     exists $2
     alive $2 || die "$2 isn't running"
     touch workers/$2/stopping
-    kill -- -$(pid_of $2)  # the run's whole process group: claude and every tool it started
+    kill -- -$(pid_of $2)  # the run's process group: time and claude, which stops the tools it started
     print "stopping $2"
     ;;
 
@@ -117,7 +117,7 @@ $task" --session-id
         && note=" message it: uds:$sock"
       print "$n  $s$note\n  ${$(meta $n project):t} ${$(meta $n branch):-(no branch)}  started $(meta $n created)\n  $line"
     done
-    [[ -z $(print workers/*(N/)) ]] && print "no workers"
+    [[ -n $(print workers/*(N/)) ]] || print "no workers"
     ;;
 
   show)
@@ -162,8 +162,9 @@ $task" --session-id
     # Only the project's own settings plus worker-settings.json: Juan's global allow-list (deploys, pushes to
     # databases) is for his own sessions, not for unattended workers. The guard hook gets its path filled in here.
     settings=$(jq -c --arg guard "${(q)code}/worker-guard $(meta $name branch)" '.hooks.PreToolUse[0].hooks[0].command = $guard' $code/worker-settings.json)
-    # CLAUDECODE is unset because claude refuses to start inside another session.
-    $DETACH /usr/bin/time -p -o $times env -u CLAUDECODE claude -p --output-format stream-json --verbose \
+    # CLAUDECODE is unset because claude refuses to start inside another session. PIP_WORKER marks every process
+    # of the run, so `bot` and `notify` refuse them.
+    $DETACH /usr/bin/time -p -o $times env -u CLAUDECODE PIP_WORKER=$name claude -p --output-format stream-json --verbose \
       --model ${model:-claude-opus-5-5} --effort ${effort:-medium} $how "$(meta $name session)" \
       --no-chrome --permission-mode auto --permission-prompts none \
       --setting-sources project,local --settings $settings --append-system-prompt "$(<$code/worker-rules.md)" \
@@ -179,7 +180,6 @@ $task" --session-id
       if (( quiet >= IDLE_KILL )); then kill -- -$pid 2>/dev/null; code_=124; break; fi
     done
     if [[ -z $code_ ]]; then wait $pid 2>/dev/null; code_=$?; fi
-    kill -- -$pid 2>/dev/null  # whatever the run left behind: nothing of it may outlive its pid file
     grep '"type":"result"' $log | tail -1 > $w/last.json
     result=$(jq -r '.result // empty' $w/last.json 2>/dev/null)
     if [[ -f $w/stopping ]]; then s=stopped

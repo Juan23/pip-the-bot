@@ -148,22 +148,24 @@ async function serveStatic(pathname: string) {
     : new Response("Not found", { status: 404 });
 }
 
-// Whether the process on the other end of a local connection belongs to a running worker. Each run is its own process
-// group, and workers/<name>/pid holds "<group id> <its start time>". Workers must never speak as Juan: the Origin
-// check stops browsers, not local programs.
+// Whether the process on the other end of a local connection was started by a running worker: a run's first process
+// (workers/<name>/pid holds "<pid> <start time>") is among its ancestors. Claude Code gives each command its own
+// process group, and ps can't read the environment of system tools like curl, so ancestry is what ties a command
+// to its run. Workers must never speak as Juan: the Origin check stops browsers, not local programs.
 async function fromWorker(port: number) {
   const dir = join(BOT, "workers");
   const ids = await Promise.all((await readdir(dir).catch(() => [])).map((n) => readText(join(dir, n, "pid"))));
-  const groups = new Map(ids.filter((t): t is string => !!t).map((t) => [t.split(" ")[0], t.split(" ").slice(1).join(" ")]));
-  if (!groups.size) return false;
+  const runs = new Map(ids.filter((t): t is string => !!t).map((t) => [t.split(" ")[0], t.split(" ").slice(1).join(" ")]));
+  if (!runs.size) return false;
+  const ps = async (field: string, pid: string) =>
+    (await new Response(Bun.spawn(["ps", "-o", `${field}=`, "-p", pid], { stdout: "pipe", stderr: "ignore" }).stdout).text()).trim();
   const lsof = Bun.spawn(["lsof", "-nP", "-t", `-iTCP@127.0.0.1:${port}`], { stdout: "pipe", stderr: "ignore" });
-  for (const pid of (await new Response(lsof.stdout).text()).split("\n")) {
-    if (!pid || Number(pid) === process.pid) continue;
-    const pgid = (await new Response(Bun.spawn(["ps", "-o", "pgid=", "-p", pid], { stdout: "pipe" }).stdout).text()).trim();
-    if (!groups.has(pgid)) continue;
-    // the run itself, not a later process reusing its pid (after a reboot, say)
-    const started = await new Response(Bun.spawn(["ps", "-o", "lstart=", "-p", pgid], { stdout: "pipe", stderr: "ignore" }).stdout).text();
-    if (started.trim().split(/\s+/).join(" ") === groups.get(pgid)) return true;
+  for (const peer of (await new Response(lsof.stdout).text()).split("\n")) {
+    if (!peer || Number(peer) === process.pid) continue;
+    for (let pid = peer; pid && pid !== "1"; pid = await ps("ppid", pid)) {
+      // the run itself, not a later process reusing its pid (after a reboot, say)
+      if (runs.has(pid) && (await ps("lstart", pid)).split(/\s+/).join(" ") === runs.get(pid)) return true;
+    }
   }
   return false;
 }

@@ -40,13 +40,8 @@ case $1 in
   battery) battery; exit ;;  # for the worker script's logging
 esac
 
-# A worker must never speak as Juan (or log as Pip): refuse any caller in a running worker's process group.
-# The pid file holds "<pid> <start time>"; a later process reusing that pid (after a reboot, say) isn't a worker.
-pgid=$(ps -o pgid= -p $$ | tr -d ' ')
-for f in workers/*/pid(N); do
-  read wpid started < $f
-  [[ $wpid == $pgid && $(print $(ps -o lstart= -p $wpid 2>/dev/null)) == $started ]] && { print -u2 "bot: workers can't message Pip; put it in your report"; exit 1; }
-done
+# A worker must never speak as Juan (or log as Pip): `worker` marks every process of a run with PIP_WORKER.
+[[ -n $PIP_WORKER ]] && { print -u2 "bot: workers can't message Pip; put it in your report"; exit 1; }
 
 case $1 in
   log) event $2 --arg text "${*[3,-1]}"; exit ;;
