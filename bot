@@ -21,6 +21,17 @@ battery() {  # prints "<percent> <battery|ac>", or "null ac" on a Mac without a 
   pct=$(print -r -- $b | grep -o '[0-9]*%' | head -1 | tr -d %)
   [[ $b == *"Battery Power"* ]] && print ${pct:-null} battery || print ${pct:-null} ac
 }
+measured() {  # measured <command...>: runs it, then sets $st and $stats (exit, time, CPU, battery) for the event log
+  local times=$(mktemp) t0=$SECONDS b0 b1 power
+  read b0 power <<< "$(battery)"
+  /usr/bin/time -p -o $times "$@"
+  st=$?
+  read b1 _ <<< "$(battery)"
+  stats=(--argjson exit $st --argjson secs $(printf %.1f $((SECONDS - t0)))
+    --argjson cpu $(awk '/^(user|sys)/ {s += $2} END {printf "%.1f", s + 0}' $times)
+    --argjson battery_start $b0 --argjson battery_end $b1 --arg power $power)
+  rm -f $times
+}
 
 case $1 in
   ui) exec open $code/ui/Bot.app ;;
@@ -29,11 +40,12 @@ case $1 in
   battery) battery; exit ;;  # for the worker script's logging
 esac
 
-# A worker must never speak as Juan (or log as Pip): refuse any caller in a worker run's process group.
+# A worker must never speak as Juan (or log as Pip): refuse any caller in a running worker's process group.
+# The pid file holds "<pid> <start time>"; a later process reusing that pid (after a reboot, say) isn't a worker.
 pgid=$(ps -o pgid= -p $$ | tr -d ' ')
 for f in workers/*/pid(N); do
-  read wpid _ < $f
-  [[ $wpid == $pgid ]] && { print -u2 "bot: workers can't message Pip; put it in your report"; exit 1; }
+  read wpid started < $f
+  [[ $wpid == $pgid && $(print $(ps -o lstart= -p $wpid 2>/dev/null)) == $started ]] && { print -u2 "bot: workers can't message Pip; put it in your report"; exit 1; }
 done
 
 case $1 in
@@ -72,32 +84,24 @@ case $1 in
         (*) kind=chat ;;
       esac
     fi
-    out=$(mktemp) times=$(mktemp) t0=$SECONDS
-    read b0 power <<< "$(battery)"
-    /usr/bin/time -p -o $times $claude -p --output-format json "$prompt" > $out
-    st=$?
-    read b1 _ <<< "$(battery)"
+    out=$(mktemp)
+    measured $claude -p --output-format json "$prompt" > $out
     reply=$(jq -r '.result // empty' $out 2>/dev/null)
     if [[ -z $reply ]]; then cat $out >&2
     elif [[ $kind == wake ]]; then print -r -- $reply >> log
     else print -r -- $reply
     fi
-    stats=(--argjson exit $st --argjson secs $(printf %.1f $((SECONDS - t0)))
-      --argjson cpu $(awk '/^(user|sys)/ {s += $2} END {printf "%.1f", s}' $times)
-      --argjson battery_start $b0 --argjson battery_end $b1 --arg power $power)
     [[ -s $out ]] && jq -c --arg at "$(date -u +%FT%TZ)" --arg kind $kind $stats '$ARGS.named + {
       turns: .num_turns, cost_usd: .total_cost_usd, denials: (.permission_denials | length),
       tokens_in: (.usage | .input_tokens + .cache_read_input_tokens + .cache_creation_input_tokens),
       tokens_cached: .usage.cache_read_input_tokens,
       tokens_out: .usage.output_tokens}' $out >> events.jsonl 2>/dev/null || event $kind $stats
-    rm -f $out $times
+    rm -f $out
     ;;
   '')
     lockf -k -s -t 0 .lock true || echo "(bot is busy with something, waiting for it…)"
-    t0=$SECONDS
-    lockf -k -s -t 1800 .lock $claude
-    st=$?
-    event terminal-chat --argjson exit $st --argjson secs $(printf %.1f $((SECONDS - t0)))
+    measured lockf -k -s -t 1800 .lock $claude
+    event terminal-chat $stats  # an interactive session reports no tokens or cost
     ;;
   *)
     lockf -k -s -t 0 .lock true || echo "(bot is busy with something, waiting for it…)" >&2

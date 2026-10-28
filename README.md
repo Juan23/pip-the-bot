@@ -21,15 +21,15 @@ You talk to Pip; Pip hands project work to **workers** and stays free to chat.
 
 - **What a worker is:** a headless Claude Code run (`worker start <name> <project> "<task>"`) in its own git worktree on a `pip/<name>` branch, under `~/bot/worktrees/`.
 - **Settings:** model and effort come from `~/.claude/shipmaster-defaults`, the same knob shipmaster uses. Two run at once at most.
-- **Reporting back:** when a worker finishes, gets stuck or asks a question, its report goes to Pip through the server's queue. Pip checks the work and messages you on your Mac and Telegram. If the server is down, Pip picks the report up on its next wake.
+- **Reporting back:** when a worker finishes, gets stuck or asks a question, its report goes to Pip through the server's queue. Pip checks the work and messages you on your Mac and Telegram. If the server is down or that turn fails, Pip picks the report up on its next wake: a report counts as told only once Pip has passed it on.
 - **Steering:**
   - Pip can message a running worker; it reads messages between steps.
   - `worker resume` continues a finished one with a new instruction.
   - `worker show` prints how to open its session yourself.
 - **What a worker may do on its own:** commit, push its own `pip/` branch, open a PR. Its rules are in `worker-rules.md`. Four layers keep it there:
-  1. **Settings.** Workers load only the project's settings plus `worker-settings.json`, never your global allow-list.
-  2. **The `worker-guard` hook.** It allows exactly one push form, `git push -u origin pip/<name>`, and blocks any other push or merge, and any attempt to message Pip.
-  3. **`bot` and the server.** Both refuse any process running inside a worker, so a worker can't speak as you.
+  1. **Settings.** Workers load only the project's own settings (shared and local) plus `worker-settings.json`, never your global allow-list.
+  2. **The `worker-guard` hook.** It allows one push, the worker's own branch (`git push -u origin pip/<name>`, with or without `-u`), and blocks any other push or merge, and any attempt to message Pip.
+  3. **`bot` and the server.** Both refuse any process running inside a worker, so a worker can't speak as you. When a run ends, `worker` stops anything it left running.
   4. **Auto mode.** It refuses anything else risky, since nobody is there to ask.
 - Workers only run in git repos, always on their own branch.
 - **Approvals:**
@@ -40,7 +40,7 @@ You talk to Pip; Pip hands project work to **workers** and stays free to chat.
 
 ## Logs
 
-Every turn, wake-up, worker run and approval adds a line to `~/bot/events.jsonl`, recording time, CPU, tokens, cache hits, API-equivalent cost, and battery at start and end. `bot stats [days]` sums them up by kind, plus the CPU the always-on server and app have used.
+Every turn, wake-up, worker run and approval adds a line to `~/bot/events.jsonl`, recording time, CPU, tokens, cache hits, API-equivalent cost, and battery at start and end. A chat in the terminal records all but tokens and cost, which an interactive session doesn't report. `bot stats [days]` sums them up by kind, plus the CPU the always-on server and app have used.
 
 Pip's home, `~/bot`, holds everything private: the conversation id, `memory/`, `log`, and the Telegram token and chat id. `install.sh` links the code from this repo into that home, so nothing private ever lands here.
 

@@ -148,19 +148,22 @@ async function serveStatic(pathname: string) {
     : new Response("Not found", { status: 404 });
 }
 
-// Whether the process on the other end of a local connection belongs to a worker run. Each run is its own process
-// group, and workers/<name>/pid starts with that group's id. Workers must never speak as Juan: the Origin check
-// stops browsers, not local programs.
+// Whether the process on the other end of a local connection belongs to a running worker. Each run is its own process
+// group, and workers/<name>/pid holds "<group id> <its start time>". Workers must never speak as Juan: the Origin
+// check stops browsers, not local programs.
 async function fromWorker(port: number) {
   const dir = join(BOT, "workers");
   const ids = await Promise.all((await readdir(dir).catch(() => [])).map((n) => readText(join(dir, n, "pid"))));
-  const groups = new Set(ids.map((t) => t?.split(" ")[0]).filter(Boolean));
+  const groups = new Map(ids.filter((t): t is string => !!t).map((t) => [t.split(" ")[0], t.split(" ").slice(1).join(" ")]));
   if (!groups.size) return false;
   const lsof = Bun.spawn(["lsof", "-nP", "-t", `-iTCP@127.0.0.1:${port}`], { stdout: "pipe", stderr: "ignore" });
   for (const pid of (await new Response(lsof.stdout).text()).split("\n")) {
     if (!pid || Number(pid) === process.pid) continue;
     const pgid = (await new Response(Bun.spawn(["ps", "-o", "pgid=", "-p", pid], { stdout: "pipe" }).stdout).text()).trim();
-    if (groups.has(pgid)) return true;
+    if (!groups.has(pgid)) continue;
+    // the run itself, not a later process reusing its pid (after a reboot, say)
+    const started = await new Response(Bun.spawn(["ps", "-o", "lstart=", "-p", pgid], { stdout: "pipe", stderr: "ignore" }).stdout).text();
+    if (started.trim().split(/\s+/).join(" ") === groups.get(pgid)) return true;
   }
   return false;
 }

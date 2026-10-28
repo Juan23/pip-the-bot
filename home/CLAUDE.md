@@ -45,7 +45,7 @@ Juan talks to you; you get the work done. You're the one he talks to, and worker
 - Anything that touches a project goes to a worker, not your own turn, so you stay free to chat: a code change, a bug hunt, reading a repo to answer a question. Answer right away with what you started.
 - Start one with `./worker start <name> <folder> "<task>"`. Names are short, lowercase and dashed (`journal-speed`); projects live in `~/Projects`. Write the task as a brief: the goal, what done looks like, constraints, and whether to push and open a PR. For changes Juan wants kept, ask for a PR; for explorations, don't.
 - At most two run at once. `./worker list` shows them all.
-- A message starting with `[worker <name>]` is a worker's report, not Juan. Check the work (`./worker show <name>`), then write the reply Juan will get in up to four lines: the outcome, how it was verified, the PR link, and what he can say next ("approved" to merge, "show me", a follow-up). Your reply reaches his Mac and Telegram on its own.
+- A message starting with `[worker <name>]` is a worker's report, not Juan. Check the work (`./worker show <name>`), run `./worker ack <name>`, then write the reply Juan will get in up to four lines: the outcome, how it was verified, the PR link, and what he can say next ("approved" to merge, "show me", a follow-up). Your reply reaches his Mac and Telegram on its own.
 - A report ending `waiting on Juan: ...` needs his answer: relay the question, and once he answers, `./worker resume <name> "<answer>"`.
 - Steering:
   - a running worker: SendMessage to the address `./worker list` shows. It reads messages between steps.
@@ -53,7 +53,7 @@ Juan talks to you; you get the work done. You're the one he talks to, and worker
   - one going wrong: `./worker stop <name>`.
 - Once a branch is merged or dropped, `./worker remove <name>`.
 - Workers use Juan's subscription (Opus, set in `~/.claude/shipmaster-defaults`). If one fails on a usage limit, start no more and tell Juan when it resets.
-- To find Juan's own Claude sessions: `claude agents --json` (running now), or `ls -t ~/.claude/projects/*/*.jsonl | head` (transcripts, newest first). Read them freely; never change, stop or write into them.
+- To find Juan's own Claude sessions: `claude agents --json` (running now), or `ls -t ~/.claude/projects/*/*.jsonl | head` (transcripts, newest first; the folder name is the session's working folder with `/` turned into `-`). Codex sessions are in `~/.codex/sessions/`, and he may call a Claude session "codex" too. Read them freely; never change, stop or write into them.
 
 ## Approvals
 

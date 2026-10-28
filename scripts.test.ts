@@ -12,7 +12,7 @@ const run = (cmd: string[], env: Record<string, string> = {}, stdin?: string) =>
 };
 
 const guard = (command: string) => {
-  const out = run([join(code, "worker-guard")], {}, JSON.stringify({ tool_name: "Bash", tool_input: { command } })).out;
+  const out = run([join(code, "worker-guard"), "pip/fix-login"], {}, JSON.stringify({ tool_name: "Bash", tool_input: { command } })).out;
   return out ? JSON.parse(out).hookSpecificOutput.permissionDecision : "pass";
 };
 
@@ -20,11 +20,12 @@ test("worker-guard allows only a push of the worker's own pip/ branch", () => {
   expect(guard("git push -u origin pip/fix-login")).toBe("allow");
   expect(guard("git push origin pip/fix-login")).toBe("allow");
   for (const cmd of [
-    "git push origin pip/x:main",
+    "git push origin pip/other-worker",
+    "git push origin pip/fix-login:main",
     "git push origin main",
-    "git push --force -u origin pip/x",
-    "git push -u origin pip/x && git push origin main",
-    "git push -u origin pip/x\ngit push origin main",
+    "git push --force -u origin pip/fix-login",
+    "git push -u origin pip/fix-login && git push origin main",
+    "git push -u origin pip/fix-login\ngit push origin main",
     "cd .. && git push",
   ]) expect([cmd, guard(cmd)]).toEqual([cmd, "deny"]);
 });
@@ -41,19 +42,42 @@ test("worker-guard blocks merges and messaging Pip, and passes everything else",
   for (const cmd of ["git status", "bun test", "gh pr create --fill", "echo robot"]) expect([cmd, guard(cmd)]).toEqual([cmd, "pass"]);
 });
 
-test("bot refuses a caller inside a worker's process group, and logs for anyone else", () => {
+// Runs a shell script in a new session, like a worker run: its pid is its process group.
+const inNewGroup = (script: string, env: Record<string, string>) =>
+  run(["/usr/bin/python3", "-c", "import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])", "/bin/zsh", "-c", script], env);
+// the pid file as `worker` writes it: "<pid> <start time>"
+const writePid = (file: string) => `print $$ $(ps -o lstart= -p $$) > ${file}`;
+
+test("bot refuses a caller inside a running worker's process group, and logs for anyone else", () => {
   const home = tempHome();
   mkdirSync(join(home, "workers/w"), { recursive: true });
-  // a new session, like a worker run: its pid is its process group, written where `worker` writes it
-  const inWorker = run(["/usr/bin/python3", "-c", "import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])",
-    "/bin/zsh", "-c", `print "$$ started" > ${home}/workers/w/pid; exec ${code}/bot log approval "merge #1 - approved"`],
-    { BOT_HOME: home });
+  const inWorker = inNewGroup(`${writePid(`${home}/workers/w/pid`)}; exec ${code}/bot log approval "merge #1 - approved"`, { BOT_HOME: home });
   expect(inWorker.code).toBe(1);
   expect(inWorker.err).toContain("workers can't message Pip");
 
-  expect(run([join(code, "bot"), "log", "approval", "merge #2 - approved"], { BOT_HOME: home }).code).toBe(0);
+  // an old pid file whose pid now belongs to someone else (after a reboot, say) refuses nobody
+  const reused = inNewGroup(`print "$$ Mon Jan 5 10:00:00 2026" > ${home}/workers/w/pid; exec ${code}/bot log approval "merge #2 - approved"`, { BOT_HOME: home });
+  expect(reused.code).toBe(0);
+
+  expect(run([join(code, "bot"), "log", "approval", "merge #3 - approved"], { BOT_HOME: home }).code).toBe(0);
   const events = readFileSync(join(home, "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
-  expect(events).toMatchObject([{ kind: "approval", text: "merge #2 - approved" }]);
+  expect(events).toMatchObject([{ text: "merge #2 - approved" }, { kind: "approval", text: "merge #3 - approved" }]);
+});
+
+test("worker list and stop see a running worker", async () => {
+  const home = tempHome();
+  const w = join(home, "workers/w");
+  mkdirSync(w, { recursive: true });
+  writeFileSync(join(w, "meta.json"), JSON.stringify({ project: "/p", dir: "/p/wt", branch: "pip/w", created: "now" }));
+  writeFileSync(join(w, "state"), "running\n");
+  const sleeper = Bun.spawn(["/usr/bin/python3", "-c", "import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])",
+    "/bin/zsh", "-c", `${writePid(`${w}/pid`)}; exec sleep 30`]);
+  while (!(await Bun.file(join(w, "pid")).exists())) await Bun.sleep(20);
+
+  const worker = (...args: string[]) => run([join(code, "worker"), ...args], { BOT_HOME: home });
+  expect(worker("list").out).toStartWith("w  running");
+  expect(worker("stop", "w").out).toBe("stopping w\n");
+  expect(await sleeper.exited).not.toBe(0);
 });
 
 test("bot stats sums events by kind and lists approvals", () => {

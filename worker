@@ -30,7 +30,7 @@ pid_of() { local pid _; read pid _ < $home/workers/$1/pid 2>/dev/null; print $pi
 alive() {  # the pid file holds "<pid> <start time>": after a reboot the same pid can belong to someone else
   local pid started
   read pid started < $home/workers/$1/pid 2>/dev/null || return 1
-  [[ -n $pid && $(ps -o lstart= -p $pid 2>/dev/null) == $started ]]
+  [[ -n $pid && $(print $(ps -o lstart= -p $pid 2>/dev/null)) == $started ]]  # print: ps pads it, the file doesn't
 }
 running() {  # counts a run that hasn't written its pid yet, so two quick starts can't both slip under the cap
   local n=0 w
@@ -53,14 +53,11 @@ launch() {  # launch <name> <prompt> <--session-id|--resume>: one detached run
   print "started $1 (run $k) in $(meta $1 dir)"
 }
 
-report_to_pip() {  # report_to_pip <text>: queue it for Pip, or make Pip wake and find it
+# queue it for Pip, or make Pip wake and find it. Pip acks once Juan is told: queued isn't told, the turn can still fail.
+report_to_pip() {  # report_to_pip <text>
   local text=$1 base=http://127.0.0.1:7377
-  if curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST -H "Origin: $base" -H 'Content-Type: application/json' \
-      -d "$(jq -nc --arg text $text '{text: $text}')" $base/api/event | grep -q 202; then
-    return 0
-  fi
-  echo 0 > $home/.next-wake
-  return 1
+  curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST -H "Origin: $base" -H 'Content-Type: application/json' \
+    -d "$(jq -nc --arg text $text '{text: $text}')" $base/api/event | grep -q 202 || echo 0 > $home/.next-wake
 }
 
 case $1 in
@@ -164,7 +161,7 @@ $task" --session-id
     : >> $log
     # Only the project's own settings plus worker-settings.json: Juan's global allow-list (deploys, pushes to
     # databases) is for his own sessions, not for unattended workers. The guard hook gets its path filled in here.
-    settings=$(jq -c --arg guard $code/worker-guard '.hooks.PreToolUse[0].hooks[0].command = $guard' $code/worker-settings.json)
+    settings=$(jq -c --arg guard "${(q)code}/worker-guard $(meta $name branch)" '.hooks.PreToolUse[0].hooks[0].command = $guard' $code/worker-settings.json)
     # CLAUDECODE is unset because claude refuses to start inside another session.
     $DETACH /usr/bin/time -p -o $times env -u CLAUDECODE claude -p --output-format stream-json --verbose \
       --model ${model:-claude-opus-5-5} --effort ${effort:-medium} $how "$(meta $name session)" \
@@ -182,6 +179,7 @@ $task" --session-id
       if (( quiet >= IDLE_KILL )); then kill -- -$pid 2>/dev/null; code_=124; break; fi
     done
     if [[ -z $code_ ]]; then wait $pid 2>/dev/null; code_=$?; fi
+    kill -- -$pid 2>/dev/null  # whatever the run left behind: nothing of it may outlive its pid file
     grep '"type":"result"' $log | tail -1 > $w/last.json
     result=$(jq -r '.result // empty' $w/last.json 2>/dev/null)
     if [[ -f $w/stopping ]]; then s=stopped
@@ -203,7 +201,7 @@ $task" --session-id
         tokens_cached: .usage.cache_read_input_tokens, tokens_out: .usage.output_tokens})' $w/last.json >> $home/events.jsonl
     branch=$(meta $name branch)
     report_to_pip "[worker $name] $s after $((secs / 60)) min, $(meta $name project)${branch:+ on branch $branch}. Its report:
-${result[1,3000]}" && touch $w/reported
+${result[1,3000]}"
     ;;
 
   *)
