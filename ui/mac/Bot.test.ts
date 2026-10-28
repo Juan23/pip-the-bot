@@ -59,7 +59,7 @@ test("a server that exits right away is restarted 5 times, then the app stops an
 }, 40_000);
 
 test("a server that crashes once after running fine is restarted, and quitting the app stops it", async () => {
-  fakeBot(`(( $(wc -l < ${root}/starts) > 1 )) && exec sleep 600\nsleep 1; exit 1`);
+  fakeBot(`(( $(wc -l < ${root}/starts) > 1 )) && exec sleep 600\nsleep 3; exit 1`);
   const p = launch();
   await until(() => starts().length === 2, 10_000);
   const server = starts()[1];

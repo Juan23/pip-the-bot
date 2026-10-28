@@ -32,7 +32,7 @@ final class App: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNavi
     popover.contentViewController = vc
     popover.contentSize = NSSize(width: 380, height: 560)
     popover.behavior = .transient
-    if !serverAnswers() { startServer() }
+    if !serverAnswers() { startServer() }  // after the status item exists: a server that can't start dims it
   }
 
   var quitting = false
