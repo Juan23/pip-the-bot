@@ -160,8 +160,10 @@ $task" --session-id
     caffeinate -i -w $$ &!  # keep the Mac from sleeping while this worker runs
     : >> $log
     # Only the project's own settings plus worker-settings.json: Juan's global allow-list (deploys, pushes to
-    # databases) is for his own sessions, not for unattended workers. The guard hook gets its path filled in here.
-    settings=$(jq -c --arg guard "${(q)code}/worker-guard $(meta $name branch)" '.hooks.PreToolUse[0].hooks[0].command = $guard' $code/worker-settings.json)
+    # databases) is for his own sessions, not for unattended workers. The guard hook gets its path filled in here, and
+    # Pip's own CLAUDE.md is left out: worker folders sit under Pip's home, so Claude Code would load it as theirs.
+    settings=$(jq -c --arg guard "${(q)code}/worker-guard $(meta $name branch)" --arg pip $home/CLAUDE.md \
+      '.hooks.PreToolUse[0].hooks[0].command = $guard | .claudeMdExcludes = [$pip]' $code/worker-settings.json)
     # CLAUDECODE is unset because claude refuses to start inside another session; the API key and token so it bills the subscription, never API credits.
     # PIP_WORKER marks every process of the run, so `bot` and `notify` refuse them.
     $DETACH /usr/bin/time -p -o $times env -u CLAUDECODE -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN PIP_WORKER=$name claude -p --output-format stream-json --verbose \

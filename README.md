@@ -27,7 +27,7 @@ You talk to Pip; Pip hands project work to **workers** and stays free to chat.
   - `worker resume` continues a finished one with a new instruction.
   - `worker show` prints how to open its session yourself.
 - **What a worker may do on its own:** commit, push its own `pip/` branch, open a PR. Its rules are in `worker-rules.md`. Four layers keep it there:
-  1. **Settings.** Workers load only the project's own settings (shared and local) plus `worker-settings.json`, never your global allow-list.
+  1. **Settings.** Workers load only the project's own settings (shared and local) plus `worker-settings.json`, never your global allow-list or Pip's own instructions.
   2. **The `worker-guard` hook.** It allows one push, the worker's own branch (`git push -u origin pip/<name>`, with or without `-u`), and blocks any other push or merge, and any attempt to message Pip.
   3. **`bot`, `notify` and the server.** They refuse any process a worker started, so a worker can't speak as you or Pip.
   4. **Auto mode.** It refuses anything else risky, since nobody is there to ask.
