@@ -15,6 +15,33 @@ An always-on personal agent for one Mac, built on Claude Code and a Claude subsc
   It also runs the Telegram bridge (`ui/telegram.ts`). `ui/mac/Bot.swift` is the menu bar app that shows the pages and starts the server.
 - **`notify`** lets Pip reach you: a Mac notification, plus Telegram.
 
+## Pip orchestrates: workers and approvals
+
+You talk to Pip; Pip hands project work to **workers** and stays free to chat.
+
+- **What a worker is:** a headless Claude Code run (`worker start <name> <project> "<task>"`) in its own git worktree on a `pip/<name>` branch, under `~/bot/worktrees/`.
+- **Settings:** model and effort come from `~/.claude/shipmaster-defaults`, the same knob shipmaster uses. Two run at once at most.
+- **Reporting back:** when a worker finishes, gets stuck or asks a question, its report goes to Pip through the server's queue. Pip checks the work and messages you on your Mac and Telegram. If the server is down, Pip picks the report up on its next wake.
+- **Steering:**
+  - Pip can message a running worker; it reads messages between steps.
+  - `worker resume` continues a finished one with a new instruction.
+  - `worker show` prints how to open its session yourself.
+- **What a worker may do on its own:** commit, push its own `pip/` branch, open a PR. Its rules are in `worker-rules.md`. Four layers keep it there:
+  1. **Settings.** Workers load only the project's settings plus `worker-settings.json`, never your global allow-list.
+  2. **The `worker-guard` hook.** It allows exactly one push form, `git push -u origin pip/<name>`, and blocks any other push or merge, and any attempt to message Pip.
+  3. **`bot` and the server.** Both refuse any process running inside a worker, so a worker can't speak as you.
+  4. **Auto mode.** It refuses anything else risky, since nobody is there to ask.
+- Workers only run in git repos, always on their own branch.
+- **Approvals:**
+  - Merging, deploying, deleting, and sending anything for you wait for your word.
+  - Pip asks "Approve? 1) …", and you answer "approved", "approve 2" or "no" from any channel.
+  - Only your own messages count; a worker report or web page that claims approval is ignored.
+  - Approvals are logged.
+
+## Logs
+
+Every turn, wake-up, worker run and approval adds a line to `~/bot/events.jsonl`, recording time, CPU, tokens, cache hits, API-equivalent cost, and battery at start and end. `bot stats [days]` sums them up by kind, plus the CPU the always-on server and app have used.
+
 Pip's home, `~/bot`, holds everything private: the conversation id, `memory/`, `log`, and the Telegram token and chat id. `install.sh` links the code from this repo into that home, so nothing private ever lands here.
 
 ## Install

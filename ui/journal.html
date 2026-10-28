@@ -170,7 +170,7 @@ function render() {
     const isLast = i === dayTurns.length - 1;
     return entry({
       time: clock(t.at),
-      kind: !t.prompt ? "Note from Pip" : wake ? "Woke up on its own" : "Chat with Juan",
+      kind: !t.prompt ? "Note from Pip" : t.prompt.via === "worker" ? "Worker update" : wake ? "Woke up on its own" : "Chat with Juan",
       cls: `${wake || !t.prompt ? "wake" : "chat"}${waiting ? " pending" : ""}`,
       quote: t.prompt?.role === "you" ? t.prompt.text : null,
       html: reply.trim() ? renderText(reply) : null,
