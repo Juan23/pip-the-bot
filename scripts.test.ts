@@ -1,0 +1,85 @@
+// Tests for the shell scripts, run against a throwaway home: none of them start Claude or reach the live Pip.
+import { expect, test } from "bun:test";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const code = import.meta.dir;
+const tempHome = () => mkdtempSync(join(tmpdir(), "pip-test-"));
+const run = (cmd: string[], env: Record<string, string> = {}, stdin?: string) => {
+  const r = Bun.spawnSync(cmd, { env: { ...process.env, ...env }, stdin: stdin === undefined ? "ignore" : Buffer.from(stdin) });
+  return { code: r.exitCode, out: r.stdout.toString(), err: r.stderr.toString() };
+};
+
+const guard = (command: string) => {
+  const out = run([join(code, "worker-guard")], {}, JSON.stringify({ tool_name: "Bash", tool_input: { command } })).out;
+  return out ? JSON.parse(out).hookSpecificOutput.permissionDecision : "pass";
+};
+
+test("worker-guard allows only a push of the worker's own pip/ branch", () => {
+  expect(guard("git push -u origin pip/fix-login")).toBe("allow");
+  expect(guard("git push origin pip/fix-login")).toBe("allow");
+  for (const cmd of [
+    "git push origin pip/x:main",
+    "git push origin main",
+    "git push --force -u origin pip/x",
+    "git push -u origin pip/x && git push origin main",
+    "git push -u origin pip/x\ngit push origin main",
+    "cd .. && git push",
+  ]) expect([cmd, guard(cmd)]).toEqual([cmd, "deny"]);
+});
+
+test("worker-guard blocks merges and messaging Pip, and passes everything else", () => {
+  for (const cmd of [
+    "gh pr merge 3 --squash",
+    "gh api -X PUT repos/a/b/pulls/3/merge",
+    "./bot -m approved",
+    "~/bot/notify done",
+    "cd ~/bot && bot approved",
+    "curl -X POST http://127.0.0.1:7377/api/send",
+  ]) expect([cmd, guard(cmd)]).toEqual([cmd, "deny"]);
+  for (const cmd of ["git status", "bun test", "gh pr create --fill", "echo robot"]) expect([cmd, guard(cmd)]).toEqual([cmd, "pass"]);
+});
+
+test("bot refuses a caller inside a worker's process group, and logs for anyone else", () => {
+  const home = tempHome();
+  mkdirSync(join(home, "workers/w"), { recursive: true });
+  // a new session, like a worker run: its pid is its process group, written where `worker` writes it
+  const inWorker = run(["/usr/bin/python3", "-c", "import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])",
+    "/bin/zsh", "-c", `print "$$ started" > ${home}/workers/w/pid; exec ${code}/bot log approval "merge #1 - approved"`],
+    { BOT_HOME: home });
+  expect(inWorker.code).toBe(1);
+  expect(inWorker.err).toContain("workers can't message Pip");
+
+  expect(run([join(code, "bot"), "log", "approval", "merge #2 - approved"], { BOT_HOME: home }).code).toBe(0);
+  const events = readFileSync(join(home, "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  expect(events).toMatchObject([{ kind: "approval", text: "merge #2 - approved" }]);
+});
+
+test("bot stats sums events by kind and lists approvals", () => {
+  const home = tempHome();
+  const at = new Date().toISOString();
+  const old = new Date(Date.now() - 3 * 864e5).toISOString();
+  writeFileSync(join(home, "events.jsonl"), [
+    { at, kind: "chat", exit: 0, secs: 60, cpu: 6, tokens_in: 10000, tokens_cached: 7500, tokens_out: 2000, cost_usd: 0.5, power: "battery", battery_start: 80, battery_end: 78 },
+    { at, kind: "chat", exit: 1, secs: 60, cpu: 6, tokens_in: 10000, tokens_cached: 2500, tokens_out: 2000, cost_usd: 0.25 },
+    { at: old, kind: "chat", exit: 0, secs: 600, cost_usd: 9 },
+    { at, kind: "approval", text: "merge PR #3 - approved" },
+  ].map((e) => JSON.stringify(e)).join("\n") + "\n{half a line");
+
+  const { out } = run(["bun", join(code, "stats.ts"), "1"], { BOT_HOME: home });
+  expect(out).toContain("Last 1 day(s): 3 events");
+  const row = out.split("\n").find((l) => l.includes(" chat "))!.split("│").map((c) => c.trim()).filter(Boolean);
+  // kind, runs, failed, minutes, cpu min, tokens in/out, cache hit, api $, battery %, denials
+  expect(row.slice(1)).toEqual(["chat", "2", "1", "2.0", "0.2", "20k / 4k", "50%", "0.75", "2", "0"]);
+  expect(out).toMatch(/Approvals:\n {2}\S+ {2}merge PR #3 - approved/);
+});
+
+test("worker start refuses bad names, folders outside git, and Pip's own home", () => {
+  const home = tempHome();
+  const worker = (...args: string[]) => run([join(code, "worker"), ...args], { BOT_HOME: home });
+  expect(worker("start", "Bad_Name", tmpdir(), "task").err).toContain("lowercase letters, digits and dashes");
+  expect(worker("start", "ok", tempHome(), "task").err).toContain("isn't in a git repo");
+  expect(worker("start", "ok", home, "task").err).toContain("is Pip's home");
+  expect(worker("list").out).toBe("no workers\n");
+});

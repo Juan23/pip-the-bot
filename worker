@@ -12,7 +12,7 @@
 # Model and effort come from ~/.claude/shipmaster-defaults (model=..., effort=...), the one knob for headless work.
 self=${0:A}  # this script (inside a function $0 is the function's name)
 code=${self:h}
-home=${BOT_HOME:-$HOME/bot}
+home=${${BOT_HOME:-$HOME/bot}:A}  # resolved, to compare with resolved project folders
 start_dir=$PWD  # a relative project folder means relative to where `worker` was called, not ~/bot
 path=(~/.local/bin /opt/homebrew/bin $path)
 export LC_ALL=C  # decimal points, not commas, in the numbers logged below
