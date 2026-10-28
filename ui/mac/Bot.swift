@@ -11,9 +11,11 @@ final class App: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNavi
   var windows: [String: NSWindow] = [:]
   var server: Process?  // set only when this app started the server, so quitting never stops someone else's
   var retries: [WKWebView: Int] = [:]
+  var restarts: [Date] = []  // so a server that keeps dying is left down after 5 restarts in a minute
+  var serverError = Data()  // the end of this run's error output, to say why the server died
+  var down: String?  // why the server is down, once the app has stopped restarting it
 
   func applicationDidFinishLaunching(_ note: Notification) {
-    if !serverAnswers() { startServer() }
     NSApp.mainMenu = mainMenu()
 
     item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -30,6 +32,7 @@ final class App: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNavi
     popover.contentViewController = vc
     popover.contentSize = NSSize(width: 380, height: 560)
     popover.behavior = .transient
+    if !serverAnswers() { startServer() }
   }
 
   var quitting = false
@@ -60,15 +63,39 @@ final class App: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNavi
     let p = Process()
     p.executableURL = bot
     p.arguments = ["serve"]
+    let stderr = Pipe()
+    p.standardError = stderr
+    serverError = Data()
+    stderr.fileHandleForReading.readabilityHandler = { [weak self] h in
+      let data = h.availableData
+      if data.isEmpty { h.readabilityHandler = nil; return }
+      FileHandle.standardError.write(data)  // still passed on, as before
+      DispatchQueue.main.async { guard let self else { return }; self.serverError = (self.serverError + data).suffix(2000) }
+    }
     // If the server dies (crash, killed), start it again unless the app is quitting or another server took the port.
     p.terminationHandler = { [weak self] _ in
       DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
         guard let self, !self.quitting else { return }
         self.server = nil
-        if !self.serverAnswers() { self.startServer() }
+        if self.serverAnswers() { return }
+        self.restarts = self.restarts.filter { $0.timeIntervalSinceNow > -60 }
+        if self.restarts.count < 5 {
+          self.restarts.append(Date())
+          self.startServer()
+        } else {
+          self.serverDown(String(decoding: self.serverError, as: UTF8.self))
+        }
       }
     }
-    do { try p.run(); server = p } catch { NSLog("Bot: couldn't start \(bot.path) serve: \(error)") }
+    do { try p.run(); server = p } catch { serverDown("couldn't start \(bot.path) serve: \(error)") }
+  }
+
+  // Dim the icon, and let a click show the menu, which says why.
+  func serverDown(_ why: String) {
+    NSLog("Bot: Pip's server is down. Its last error: %@", why)
+    down = why
+    item.button?.appearsDisabled = true
+    item.button?.setAccessibilityLabel("Pip: server down")
   }
 
   // MARK: web views
@@ -134,9 +161,15 @@ final class App: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNavi
 
   @objc func statusClicked(_ sender: NSStatusBarButton) {
     let event = NSApp.currentEvent
-    if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
+    if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true || down != nil {
       popover.performClose(nil)
       let menu = NSMenu()
+      if let down {
+        menu.addItem(withTitle: "Pip's server is down. Its last error:", action: nil, keyEquivalent: "")
+        let lines = down.split(whereSeparator: \.isNewline).suffix(8)
+        for line in lines.isEmpty ? ["(none)"] : lines { menu.addItem(withTitle: String(line.prefix(120)), action: nil, keyEquivalent: "") }
+        menu.addItem(.separator())
+      }
       menu.addItem(withTitle: "Open chat window", action: #selector(openChat), keyEquivalent: "").target = self
       menu.addItem(withTitle: "Open journal", action: #selector(openJournal), keyEquivalent: "").target = self
       menu.addItem(.separator())
