@@ -97,17 +97,17 @@ test("a run that ends leaves no pid record, and list, stop and resume still work
       JSON.stringify({ project: "/p", dir: tempHome(), branch: `pip/${n}`, session: "s", created: "now" }));
     writeFileSync(join(home, "workers", n, "state"), "done\n");
   }
-  const files = (n: string) => ({ state: readFileSync(join(home, "workers", n, "state"), "utf8").trim(), pid: existsSync(join(home, "workers", n, "pid")) });
+  const status = (n: string) => ({ state: readFileSync(join(home, "workers", n, "state"), "utf8").trim(), pid: existsSync(join(home, "workers", n, "pid")) });
 
   expect(worker(["resume", "fast", "go on"]).out).toStartWith("started fast (run 1)");
   expect(worker(["resume", "slow", "go on"], { FAKE_CLAUDE_SECS: "30" }).code).toBe(0);
-  while (!files("slow").pid) await Bun.sleep(20);
+  while (!status("slow").pid) await Bun.sleep(20);
   expect(worker(["list"]).out).toContain("slow  running");
   expect(worker(["stop", "slow"]).out).toBe("stopping slow\n");
 
   const deadline = Date.now() + 25_000;  // the run checks on claude every 10 s
-  while (Date.now() < deadline && ["fast", "slow"].some((n) => files(n).state === "running" || files(n).pid)) await Bun.sleep(200);
-  expect([files("fast"), files("slow")]).toEqual([{ state: "done", pid: false }, { state: "stopped", pid: false }]);
+  while (Date.now() < deadline && ["fast", "slow"].some((n) => status(n).state === "running" || status(n).pid)) await Bun.sleep(200);
+  expect([status("fast"), status("slow")]).toEqual([{ state: "done", pid: false }, { state: "stopped", pid: false }]);
   expect(worker(["list"]).out).toMatch(/^fast {2}done.*\n(.*\n){2}slow {2}stopped/);
   expect(worker(["stop", "fast"]).err).toContain("fast isn't running");
 }, 30_000);

@@ -191,7 +191,7 @@ $task" --session-id
     else s=done
     fi
     print $s > $w/state
-    rm -f $w/pid  # only a running run keeps its id: after a restart macOS reuses ids, and an old one could match Juan's terminal
+    rm -f $w/pid  # only a run still going keeps its id record, so only it counts as a worker
     read b1 _ <<< "$($code/bot battery)"
     secs=$(printf %.0f $((SECONDS - t0)))
     cpu=$(awk '/^(user|sys)/ {s += $2} END {printf "%.1f", s + 0}' $times 2>/dev/null); cpu=${cpu:-0}
