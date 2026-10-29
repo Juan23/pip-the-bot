@@ -2,14 +2,14 @@
 // Run: `bot serve` (Bot.app starts it). Listens on 127.0.0.1:7377 only.
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { startTelegram, stopTelegram, TELEGRAM_PREFIX, type Done } from "./telegram.ts";
+import { readHistory, WORKER_PREFIX } from "./history.ts";
+import { startTelegram, stopTelegram, type Done } from "./telegram.ts";
 
 const PORT = 7377;
 const UI = import.meta.dir;
 const BOT = process.env.BOT_HOME || join(process.env.HOME!, "bot"); // the bot's home: conversation id, memory, private files
 const SCRIPT = join(UI, "..", "bot");
 const NOTIFY = join(UI, "..", "notify");
-const WORKER_PREFIX = "[worker ";
 const HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 const ORIGINS = new Set([...HOSTS].map((h) => `http://${h}`));
 const PAGES: Record<string, string> = { "/": "window.html", "/popover": "popover.html", "/journal": "journal.html" };
@@ -59,43 +59,9 @@ async function state() {
   };
 }
 
-// role "wake" is any turn Juan didn't start: Pip waking itself, or (via "worker") a worker reporting in
-type Item = { role: "you" | "wake" | "bot"; text: string; at: string; tools?: string[]; via?: "telegram" | "worker" };
-
-function promptText(content: unknown): string | null {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content) || content.some((b) => b?.type === "tool_result")) return null;
-  return content.filter((b) => b?.type === "text").map((b) => b.text).join("\n") || null;
-}
-
-async function history(limit: number): Promise<Item[]> {
+async function history(limit: number) {
   const sid = await readText(join(BOT, ".session"));
-  if (!sid) return [];
-  const file = Bun.file(join(process.env.HOME!, ".claude/projects", BOT.replaceAll("/", "-"), `${sid}.jsonl`));
-  if (!(await file.exists())) return [];
-  const items: Item[] = [];
-  let reply: Item | null = null;
-  for (const line of (await file.text()).split("\n")) {
-    let e;
-    try { e = JSON.parse(line); } catch { continue; } // blank, or the line claude is still writing
-    if (e.type === "user" && !e.isMeta && !e.isCompactSummary) {
-      const text = promptText(e.message?.content)?.trim();
-      if (!text || text.startsWith("<command-") || text.startsWith("<local-command-")) continue; // tool results, slash-command echoes
-      reply = null;
-      if (text.startsWith(TELEGRAM_PREFIX)) items.push({ role: "you", text: text.slice(TELEGRAM_PREFIX.length), at: e.timestamp, via: "telegram" });
-      else if (text.startsWith(WORKER_PREFIX)) items.push({ role: "wake", text, at: e.timestamp, via: "worker" });
-      else items.push({ role: text.startsWith("[wake]") ? "wake" : "you", text, at: e.timestamp });
-    } else if (e.type === "assistant" && Array.isArray(e.message?.content)) {
-      for (const b of e.message.content) {
-        if (b.type !== "text" && b.type !== "tool_use") continue;
-        if (!reply) items.push((reply = { role: "bot", text: "", at: e.timestamp, tools: [] }));
-        reply.at = e.timestamp;
-        if (b.type === "text" && b.text.trim()) reply.text = [reply.text, b.text.trim()].filter(Boolean).join("\n\n");
-        if (b.type === "tool_use" && !reply.tools!.includes(b.name)) reply.tools!.push(b.name);
-      }
-    }
-  }
-  return items.slice(-limit);
+  return sid ? readHistory(join(process.env.HOME!, ".claude/projects", BOT.replaceAll("/", "-"), `${sid}.jsonl`), limit) : [];
 }
 
 async function memory() {
