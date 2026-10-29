@@ -20,6 +20,7 @@ typeset -F SECONDS
 MAX_RUNNING=2
 IDLE_KILL=7200   # no output for 2 h: hung, stop it
 DONE_QUIET=900   # replied, then 15 min of quiet (something it started holds it open): finished, stop what's left
+LAUNCH_WAIT=60   # a run writes its pid within a second or two; none after a minute: it died at launch
 cd $home && mkdir -p workers worktrees
 
 die() { print -u2 "worker: $*"; exit 1 }
@@ -32,10 +33,15 @@ alive() {  # the pid file holds "<pid> <start time>": after a reboot the same pi
   read pid started < $home/workers/$1/pid 2>/dev/null || return 1
   [[ -n $pid && $(print $(ps -o lstart= -p $pid 2>/dev/null)) == $started ]]  # print: ps pads it, the file doesn't
 }
+live() {  # its run is going, or was launched under LAUNCH_WAIT ago and hasn't written its pid yet
+  [[ $(state $1) == running ]] || return 1
+  [[ -f $home/workers/$1/pid ]] && { alive $1; return }
+  (( $(date +%s) - $(date -r $home/workers/$1/state +%s) < LAUNCH_WAIT ))  # launch wrote the state
+}
 running() {  # counts a run that hasn't written its pid yet, so two quick starts can't both slip under the cap
   local n=0 w
   for w in $home/workers/*(N/); do
-    [[ $(state ${w:t}) == running ]] && { [[ ! -f $w/pid ]] || alive ${w:t} } && (( n++ ))
+    live ${w:t} && (( n++ ))
   done
   print $n
 }
@@ -93,7 +99,7 @@ $task" --session-id
     exists $name
     [[ -n $msg ]] || die "no message given"
     [[ $(state $name) == removed ]] && die "$name was removed"
-    { [[ $(state $name) == running ]] || alive $name } && die "$name is still running: send it a message, or stop it first"
+    { live $name || alive $name } && die "$name is still running: send it a message, or stop it first"
     (( $(running) < MAX_RUNNING )) || die "$MAX_RUNNING workers are already running; wait for one or stop one"
     launch $name $msg --resume
     ;;
@@ -109,8 +115,8 @@ $task" --session-id
   list)
     for w in workers/*(N/); do
       n=${w:t} s=$(state $n)
+      [[ $s == running ]] && ! live $n && s=failed
       [[ $s == running && ! -f $w/pid ]] && s=starting  # the run writes its pid a moment after launch
-      [[ $s == running ]] && ! alive $n && s=failed
       line=$(jq -r '.result // empty' $w/last.json 2>/dev/null | head -1 | cut -c1-90)
       note=; [[ $s != (running|starting|removed) && ! -f $w/reported ]] && note=" (not reported to Juan)"
       [[ $s == running ]] && sock=$(ls /tmp/cc-socks/$(pgrep -P $(pid_of $n) | head -1).sock 2>/dev/null) \

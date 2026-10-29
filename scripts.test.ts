@@ -1,6 +1,6 @@
 // Tests for the shell scripts, run against a throwaway home: none of them start Claude or reach the live Pip.
 import { expect, test } from "bun:test";
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -111,6 +111,24 @@ test("a run that ends leaves no pid record, and list, stop and resume still work
   expect(worker(["list"]).out).toMatch(/^fast {2}done.*\n(.*\n){2}slow {2}stopped/);
   expect(worker(["stop", "fast"]).err).toContain("fast isn't running");
 }, 30_000);
+
+test("a launch that never records its pid shows as starting, then after 60 s as failed and outside the cap", () => {
+  const { home, worker } = offlineWorker();
+  for (const [n, state] of [["a", "running"], ["b", "running"], ["c", "done"]]) {
+    mkdirSync(join(home, "workers", n), { recursive: true });
+    writeFileSync(join(home, "workers", n, "meta.json"),
+      JSON.stringify({ project: "/p", dir: tempHome(), branch: `pip/${n}`, session: "s", created: "now" }));
+    writeFileSync(join(home, "workers", n, "state"), `${state}\n`);
+  }
+  expect(worker(["list"]).out).toMatch(/^a {2}starting\n(.*\n){2}b {2}starting\n/);
+  expect(worker(["resume", "c", "go on"]).err).toContain("2 workers are already running");
+
+  const launched = new Date(Date.now() - 61_000);  // the state file's time is when launch wrote "running"
+  for (const n of ["a", "b"]) utimesSync(join(home, "workers", n, "state"), launched, launched);
+  expect(worker(["list"]).out).toMatch(/^a {2}failed \(not reported to Juan\)\n(.*\n){2}b {2}failed \(not reported to Juan\)\n/);
+  expect(worker(["resume", "c", "go on"]).out).toStartWith("started c (run 1)");
+  expect(worker(["resume", "a", "try again"]).out).toStartWith("started a (run 1)");
+});
 
 test("bot stats sums events by kind and lists approvals", () => {
   const home = tempHome();
