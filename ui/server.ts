@@ -2,8 +2,8 @@
 // Run: `bot serve` (Bot.app starts it). Listens on 127.0.0.1:7377 only.
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { alive } from "./alive.ts";
 import { readHistory, WORKER_PREFIX } from "./history.ts";
-import { reuse } from "./reuse.ts";
 import { startTelegram, stopTelegram, type Done } from "./telegram.ts";
 
 const PORT = 7377;
@@ -37,30 +37,21 @@ async function succeeds(cmd: string[]) {
   return (await Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" }).exited) === 0;
 }
 
-// Argument lists of the claude processes running the bot's conversation right now.
-async function conversationRuns(sid: string | null) {
-  if (!sid) return [];
-  const out = await new Response(Bun.spawn(["pgrep", "-lf", sid], { stdout: "pipe", stderr: "ignore" }).stdout).text();
-  return out.split("\n").map((line) => line.split(" ").slice(1)).filter(([cmd]) => cmd?.endsWith("claude"));
-}
-
-// The status's two system programs, run at most once every 2 s: each open page asks every 3 s.
-const checks = reuse(async () => ({
-  runs: await conversationRuns(await readText(join(BOT, ".session"))),
-  wakeJob: await succeeds(["launchctl", "print", `gui/${process.getuid!()}/local.bot`]),
-}), 2000);
+// Whether launchd's wake job is loaded. It rarely changes, so it's checked once a minute, not on every status answer.
+const wakeJobLoaded = () => succeeds(["launchctl", "print", `gui/${process.getuid!()}/local.bot`]).catch(() => false);
+let wakeJob = wakeJobLoaded();
+setInterval(() => { wakeJob = wakeJobLoaded(); }, 60_000);
 
 async function state() {
   const nextWake = Number(await readText(join(BOT, ".next-wake")));
-  const { runs, wakeJob } = await checks();
-  const terminalChat = runs.some((args) => !args.includes("-p")); // `bot` is open in a terminal; messages from here wait for it to close
+  const terminalChat = await alive(join(BOT, ".terminal")); // `bot` is open in a terminal; messages from here wait for it to close
   return {
     name: (await readText(join(BOT, ".name"))) || "Your bot",
-    busy: runs.some((args) => args.includes("-p")) || (queued > 0 && !terminalChat), // answering a message or awake on its own
+    busy: (await alive(join(BOT, ".running"))) || (queued > 0 && !terminalChat), // answering a message or awake on its own
     terminalChat,
     queued,
     nextWake: nextWake > 0 ? nextWake * 1000 : null,
-    wakeJob,
+    wakeJob: await wakeJob,
     lastError,
   };
 }
@@ -101,7 +92,7 @@ function enqueue(text: string, done?: Done) {
   }).catch((e) => { // e.g. the bot script can't be started; an unhandled rejection would kill the server
     lastError = { at: Date.now(), message: `Couldn't run the bot: ${e instanceof Error ? e.message : e}` };
     done?.({ error: lastError.message });
-  }).finally(() => { queued--; checks.reset(); }); // the next status shows the run over, not a check from before
+  }).finally(() => { queued--; });
   return null;
 }
 
@@ -154,7 +145,6 @@ Bun.serve({
       const peer = server.requestIP(req);
       if (peer && (await fromWorker(peer.port))) return json({ error: "Workers can't message Pip; put it in your report." }, 403);
       if (pathname === "/api/wake") {
-        checks.reset(); // decide on what's running now
         const s = await state();
         if (s.terminalChat) return json({ error: `Close the Terminal chat first: ${s.name} can't wake up while it's open.` }, 409);
         if (s.busy) return json({ error: `${s.name} is already awake.` }, 409);
