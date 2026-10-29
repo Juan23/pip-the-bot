@@ -49,7 +49,7 @@ case $1 in
   log) event $2 --arg text "${*[3,-1]}"; exit ;;
 esac
 
-claude=(~/.local/bin/claude --model sonnet --chrome --autocompact 200k)  # flag, not settings: a resumed conversation ignores the settings model
+claude=(~/.local/bin/claude --model sonnet --chrome --autocompact 100k)  # flags, not settings: a resumed conversation ignores the settings model; 100k: each turn re-reads all of it
 if [[ -f .session ]]; then
   claude+=(--resume $(<.session))
 else

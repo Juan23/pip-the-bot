@@ -4,7 +4,7 @@ An always-on personal agent for one Mac, built on Claude Code and a Claude subsc
 
 ## How it works
 
-- **`bot`** runs every chat message and wake-up as `claude -p --resume <one conversation>`, under a lock so only one runs at a time. Claude Code compacts the conversation when it gets long. Pip saves anything worth keeping to its memory folder first.
+- **`bot`** runs every chat message and wake-up as `claude -p --resume <one conversation>`, under a lock so only one runs at a time. Every turn re-reads the whole conversation, so Claude Code compacts it once it passes 100k tokens. Pip saves anything worth keeping to its memory folder first.
 - **Wake-ups:** a launchd job runs `bot wake` every 5 minutes. Pip only actually wakes when the time it chose last has come. Then it checks its tasks and memory, does what's useful, and picks its next wake time.
 - **`home/CLAUDE.md`** is who Pip is and how it behaves. Edit it to change Pip.
 - **`ui/server.ts`** is a local-only server (127.0.0.1:7377) behind three pages:
@@ -40,7 +40,7 @@ You talk to Pip; Pip hands project work to **workers** and stays free to chat.
 
 ## Logs
 
-Every turn, wake-up, worker run and approval adds a line to `~/bot/events.jsonl`, recording time, CPU, tokens, cache hits, API-equivalent cost, and battery at start and end. A chat in the terminal records all but tokens and cost, which an interactive session doesn't report. `bot stats [days]` sums them up by kind, plus the CPU the always-on server and app have used.
+Every turn, wake-up, worker run and approval adds a line to `~/bot/events.jsonl`, recording time, CPU, tokens, cache hits, API-equivalent cost, and battery at start and end. A chat in the terminal records all but tokens and cost, which an interactive session doesn't report. `bot stats [days]` sums them up by kind, with the tokens one turn reads in, plus the CPU the always-on server and app have used.
 
 Pip's home, `~/bot`, holds everything private: the conversation id, `memory/`, `log`, and the Telegram token and chat id. `install.sh` links the code from this repo into that home, so nothing private ever lands here.
 
