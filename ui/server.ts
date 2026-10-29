@@ -4,7 +4,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { alive } from "./alive.ts";
 import { readHistory, WORKER_PREFIX } from "./history.ts";
-import { startTelegram, stopTelegram, type Done } from "./telegram.ts";
+import { readText, startTelegram, stopTelegram, type Done } from "./telegram.ts";
 
 const PORT = 7377;
 const UI = import.meta.dir;
@@ -27,11 +27,6 @@ let lastError: { at: number; message: string } | null = null;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
-
-async function readText(path: string) {
-  const file = Bun.file(path);
-  return (await file.exists()) ? (await file.text()).trim() : null;
-}
 
 async function succeeds(cmd: string[]) {
   return (await Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" }).exited) === 0;

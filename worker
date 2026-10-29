@@ -201,13 +201,10 @@ $task" --session-id
     read b1 _ <<< "$($code/bot battery)"
     secs=$(printf %.0f $((SECONDS - t0)))
     cpu=$(awk '/^(user|sys)/ {s += $2} END {printf "%.1f", s + 0}' $times 2>/dev/null); cpu=${cpu:-0}
-    jq -nc --arg at "$(date -u +%FT%TZ)" --arg kind worker-run --arg name $name --argjson run $k --arg state $s \
+    jq -nc -L $code --arg at "$(date -u +%FT%TZ)" --arg kind worker-run --arg name $name --argjson run $k --arg state $s \
       --argjson exit $code_ --argjson secs $secs --argjson cpu $cpu --argjson battery_start $b0 --argjson battery_end $b1 \
       --arg power $power --arg project "$(meta $name project)" \
-      '$ARGS.named + ((input? // {}) | {turns: .num_turns, cost_usd: .total_cost_usd,
-        denials: ((.permission_denials // []) | length),
-        tokens_in: ((.usage // {}) | .input_tokens + .cache_read_input_tokens + .cache_creation_input_tokens),
-        tokens_cached: .usage.cache_read_input_tokens, tokens_out: .usage.output_tokens})' $w/last.json >> $home/events.jsonl
+      'include "usage"; $ARGS.named + ((input? // {}) | usage)' $w/last.json >> $home/events.jsonl
     branch=$(meta $name branch)
     report_to_pip "[worker $name] $s after $((secs / 60)) min, $(meta $name project)${branch:+ on branch $branch}. Its report:
 ${result[1,3000]}"

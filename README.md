@@ -40,7 +40,7 @@ You talk to Pip; Pip hands project work to **workers** and stays free to chat.
 
 ## Logs
 
-Every turn, wake-up, worker run and approval adds a line to `~/bot/events.jsonl`, recording time, CPU, tokens, cache hits, API-equivalent cost, and battery at start and end. A chat in the terminal records all but tokens and cost, which an interactive session doesn't report. `bot stats [days]` sums them up by kind, with the tokens one turn reads in, plus the CPU the always-on server and app have used.
+Every turn, wake-up, worker run and approval adds a line to `~/bot/events.jsonl`, recording time, CPU, tokens, cache hits, API-equivalent cost, and battery at start and end. `usage.jq` turns a run's result into the turns, cost and token counts, for both `bot` and `worker`. A chat in the terminal records all but tokens and cost, which an interactive session doesn't report. `bot stats [days]` sums them up by kind, with the tokens one turn reads in, plus the CPU the always-on server and app have used.
 
 Pip's home, `~/bot`, holds everything private: the conversation id, `memory/`, `log`, and the Telegram token and chat id. `install.sh` links the code from this repo into that home, so nothing private ever lands here.
 

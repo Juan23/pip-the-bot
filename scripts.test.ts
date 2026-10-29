@@ -107,15 +107,16 @@ test("worker list and stop see a running worker", async () => {
 // ~/.local/bin/claude (first on the worker's PATH) is a fake: real runs, offline, with no Claude session.
 const offlineWorker = () => {
   const copy = tempHome(), fakeHome = tempHome();
-  for (const f of ["bot", "worker-guard", "worker-rules.md", "worker-settings.json"]) cpSync(join(code, f), join(copy, f));
+  for (const f of ["bot", "usage.jq", "worker-guard", "worker-rules.md", "worker-settings.json"]) cpSync(join(code, f), join(copy, f));
   writeFileSync(join(copy, "worker"), readFileSync(join(code, "worker"), "utf8").replaceAll("7377", "1"), { mode: 0o755 });
   mkdirSync(join(fakeHome, ".local/bin"), { recursive: true });
   writeFileSync(join(fakeHome, ".local/bin/claude"),
-    `#!/bin/zsh\nsleep \${FAKE_CLAUDE_SECS:-0}\nprint '{"type":"result","result":"all done"}'\n`, { mode: 0o755 });
+    `#!/bin/zsh\nsleep \${FAKE_CLAUDE_SECS:-0}\nprint -r -- \${FAKE_CLAUDE_OUT:-'{"type":"result","result":"all done"}'}\n`, { mode: 0o755 });
   const home = tempHome();
-  const worker = (args: string[], env: Record<string, string> = {}) =>
-    run([join(copy, "worker"), ...args], { BOT_HOME: home, HOME: fakeHome, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", ...env });
-  return { home, worker };
+  const env = (extra: Record<string, string>) => ({ BOT_HOME: home, HOME: fakeHome, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", ...extra });
+  const worker = (args: string[], extra: Record<string, string> = {}) => run([join(copy, "worker"), ...args], env(extra));
+  const bot = (args: string[], extra: Record<string, string> = {}) => run([join(copy, "bot"), ...args], env(extra));
+  return { home, worker, bot };
 };
 
 test("a run that ends leaves no pid record, and list, stop and resume still work", async () => {
@@ -158,6 +159,27 @@ test("a launch that never records its pid shows as starting, then after 60 s as 
   expect(worker(["resume", "c", "go on"]).out).toStartWith("started c (run 1)");
   expect(worker(["resume", "a", "try again"]).out).toStartWith("started a (run 1)");
 });
+
+test("bot and worker log the same turns, cost, denials and tokens from a run's result", async () => {
+  const { home, worker, bot } = offlineWorker();
+  mkdirSync(join(home, "workers/w"), { recursive: true });
+  writeFileSync(join(home, "workers/w/meta.json"), JSON.stringify({ project: "/p", dir: tempHome(), branch: "pip/w", session: "s", created: "now" }));
+  writeFileSync(join(home, "workers/w/state"), "done\n");
+  // a result as `claude -p` prints it: the whole output with --output-format json, the last line with stream-json
+  const FAKE_CLAUDE_OUT = JSON.stringify({ type: "result", is_error: false, num_turns: 3, result: "all done", total_cost_usd: 0.0123,
+    usage: { input_tokens: 10, cache_creation_input_tokens: 200, cache_read_input_tokens: 3000, output_tokens: 45 },
+    permission_denials: [{ tool_name: "Bash" }] });
+  const logged = { turns: 3, cost_usd: 0.0123, denials: 1, tokens_in: 3210, tokens_cached: 3000, tokens_out: 45 };
+
+  expect(worker(["resume", "w", "go on"], { FAKE_CLAUDE_OUT }).out).toStartWith("started w (run 1)");
+  expect(bot(["-m", "hi"], { FAKE_CLAUDE_OUT }).out).toBe("all done\n");
+  const events = () => readFileSync(join(home, "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  const deadline = Date.now() + 25_000;  // the run checks on claude every 10 s
+  while (Date.now() < deadline && events().length < 2) await Bun.sleep(200);
+  const byKind = Object.fromEntries(events().map((e) => [e.kind, e]));
+  expect(byKind.chat).toMatchObject({ exit: 0, ...logged });
+  expect(byKind["worker-run"]).toMatchObject({ name: "w", state: "done", ...logged });
+}, 30_000);
 
 test("bot stats sums events by kind, shows tokens in per run, and lists approvals", () => {
   const home = tempHome();
