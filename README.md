@@ -4,7 +4,7 @@ An always-on personal agent for one Mac, built on Claude Code and a Claude subsc
 
 ## How it works
 
-- **`bot`** runs every chat message and wake-up as `claude -p --resume <one conversation>`, under a lock so only one runs at a time. Every turn re-reads the whole conversation, so Claude Code compacts it at 100k tokens. Pip saves anything worth keeping to its memory folder first.
+- **`bot`** runs every chat message and wake-up as `claude -p --resume <one conversation>`, under a lock so only one runs at a time. Every turn re-reads the whole conversation, so Claude Code compacts it once it passes 100k tokens. Pip saves anything worth keeping to its memory folder first.
 - **Wake-ups:** a launchd job runs `bot wake` every 5 minutes. Pip only actually wakes when the time it chose last has come. Then it checks its tasks and memory, does what's useful, and picks its next wake time.
 - **`home/CLAUDE.md`** is who Pip is and how it behaves. Edit it to change Pip.
 - **`ui/server.ts`** is a local-only server (127.0.0.1:7377) behind three pages:
