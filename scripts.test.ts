@@ -147,22 +147,23 @@ test("a launch that never records its pid shows as starting, then after 60 s as 
   expect(worker(["resume", "a", "try again"]).out).toStartWith("started a (run 1)");
 });
 
-test("bot stats sums events by kind and lists approvals", () => {
+test("bot stats sums events by kind, shows tokens in per run, and lists approvals", () => {
   const home = tempHome();
   const at = new Date().toISOString();
   const old = new Date(Date.now() - 3 * 864e5).toISOString();
   writeFileSync(join(home, "events.jsonl"), [
     { at, kind: "chat", exit: 0, secs: 60, cpu: 6, tokens_in: 10000, tokens_cached: 7500, tokens_out: 2000, cost_usd: 0.5, power: "battery", battery_start: 80, battery_end: 78 },
     { at, kind: "chat", exit: 1, secs: 60, cpu: 6, tokens_in: 10000, tokens_cached: 2500, tokens_out: 2000, cost_usd: 0.25 },
+    { at, kind: "chat", exit: 1, secs: 0, cpu: 0 },  // a turn whose reply wasn't JSON logs no tokens
     { at: old, kind: "chat", exit: 0, secs: 600, cost_usd: 9 },
     { at, kind: "approval", text: "merge PR #3 - approved" },
   ].map((e) => JSON.stringify(e)).join("\n") + "\n{half a line");
 
   const { out } = run(["bun", join(code, "stats.ts"), "1"], { BOT_HOME: home });
-  expect(out).toContain("Last 1 day(s): 3 events");
+  expect(out).toContain("Last 1 day(s): 4 events");
   const row = out.split("\n").find((l) => l.includes(" chat "))!.split("│").map((c) => c.trim()).filter(Boolean);
-  // kind, runs, failed, minutes, cpu min, tokens in/out, cache hit, api $, battery %, denials
-  expect(row.slice(1)).toEqual(["chat", "2", "1", "2.0", "0.2", "20k / 4k", "50%", "0.75", "2", "0"]);
+  // kind, runs, failed, minutes, cpu min, tokens in/out, in per run (of runs that logged tokens), cache hit, api $, battery %, denials
+  expect(row.slice(1)).toEqual(["chat", "3", "2", "2.0", "0.2", "20k / 4k", "10k", "50%", "0.75", "2", "0"]);
   expect(out).toMatch(/Approvals:\n {2}\S+ {2}merge PR #3 - approved/);
 });
 

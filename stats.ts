@@ -11,6 +11,7 @@ const events: Event[] = text.split("\n").flatMap((line) => {
 }).filter((e) => Date.parse(e.at) >= since);
 
 const sum = (es: Event[], key: string) => es.reduce((n, e) => n + (Number(e[key]) || 0), 0);
+const tokenRuns = (es: Event[]) => es.filter((e) => e.tokens_in != null).length;
 // battery used: percent lost during runs that started on battery (1% steps, so short runs often show 0)
 const drain = (es: Event[]) => es.filter((e) => e.power === "battery" && e.battery_start != null && e.battery_end != null)
   .reduce((n, e) => n + Math.max(0, e.battery_start - e.battery_end), 0);
@@ -23,6 +24,8 @@ const rows = Object.entries(Object.groupBy(events.filter((e) => e.kind !== "appr
     minutes: (sum(es, "secs") / 60).toFixed(1),
     "cpu min": (sum(es, "cpu") / 60).toFixed(1),
     "tokens in/out": `${Math.round(sum(es, "tokens_in") / 1000)}k / ${Math.round(sum(es, "tokens_out") / 1000)}k`,
+    // what one turn re-reads; a turn whose reply wasn't JSON logged no tokens, so it isn't counted
+    "in per run": tokenRuns(es) ? `${Math.round(sum(es, "tokens_in") / tokenRuns(es) / 1000)}k` : "-",
     "cache hit": sum(es, "tokens_in") ? `${Math.round((100 * sum(es, "tokens_cached")) / sum(es, "tokens_in"))}%` : "-",
     "api $": sum(es, "cost_usd").toFixed(2),
     "battery %": drain(es),
