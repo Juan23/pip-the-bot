@@ -16,30 +16,46 @@ const guard = (command: string) => {
   return out ? JSON.parse(out).hookSpecificOutput.permissionDecision : "pass";
 };
 
-test("worker-guard allows only a push of the worker's own pip/ branch", () => {
-  expect(guard("git push -u origin pip/fix-login")).toBe("allow");
-  expect(guard("git push origin pip/fix-login")).toBe("allow");
-  for (const cmd of [
-    "git push origin pip/other-worker",
-    "git push origin pip/fix-login:main",
-    "git push origin main",
-    "git push --force -u origin pip/fix-login",
-    "git push -u origin pip/fix-login && git push origin main",
-    "git push -u origin pip/fix-login\ngit push origin main",
-    "cd .. && git push",
-  ]) expect([cmd, guard(cmd)]).toEqual([cmd, "deny"]);
-});
-
-test("worker-guard blocks merges and messaging Pip, and passes everything else", () => {
-  for (const cmd of [
-    "gh pr merge 3 --squash",
-    "gh api -X PUT repos/a/b/pulls/3/merge",
-    "./bot -m approved",
-    "~/bot/notify done",
-    "cd ~/bot && bot approved",
-    "curl -X POST http://127.0.0.1:7377/api/send",
-  ]) expect([cmd, guard(cmd)]).toEqual([cmd, "deny"]);
-  for (const cmd of ["git status", "bun test", "gh pr create --fill", "echo robot"]) expect([cmd, guard(cmd)]).toEqual([cmd, "pass"]);
+test("worker-guard allows only the worker's own push, denies disguised pushes, merges and messaging Pip, and passes the rest", () => {
+  const table: [string, "allow" | "deny" | "pass"][] = [
+    ["git push -u origin pip/fix-login", "allow"],
+    ["git push --set-upstream origin pip/fix-login", "allow"],
+    ["git push origin pip/fix-login", "allow"],
+    // disguised pushes
+    ["git push origin pip/other-worker", "deny"],
+    ["git push origin pip/fix-login:main", "deny"],
+    ["git push origin HEAD:refs/heads/main", "deny"],
+    ["git push origin main", "deny"],
+    ["git push --force -u origin pip/fix-login", "deny"],
+    ["git push -f origin pip/fix-login", "deny"],
+    ["git push -u origin +pip/fix-login", "deny"],
+    ["git -C ../main push origin main", "deny"],
+    ["git -C . push -u origin pip/fix-login", "deny"],
+    ["git push -u origin pip/fix-login && git push origin main", "deny"],
+    ["git push -u origin pip/fix-login; git push origin main", "deny"],
+    ["git push -u origin pip/fix-login\ngit push origin main", "deny"],
+    ["(cd ../main && git push)", "deny"],
+    ["cd .. && git push", "deny"],
+    // merges through gh
+    ["gh pr merge 3 --squash", "deny"],
+    ["gh  pr  merge 3", "deny"],
+    ["gh api -X PUT repos/a/b/pulls/3/merge", "deny"],
+    // messaging Pip
+    ["./bot -m approved", "deny"],
+    ["~/bot/notify done", "deny"],
+    ["cd ~/bot && bot approved", "deny"],
+    ["git status; bot -m done", "deny"],
+    ["(notify done)", "deny"],
+    ["curl -X POST http://127.0.0.1:7377/api/send", "deny"],
+    // ordinary commands
+    ["git status", "pass"],
+    ["git commit -m 'fix login'", "pass"],
+    ["bun test", "pass"],
+    ["gh pr create --fill", "pass"],
+    ["gh pr view 3", "pass"],
+    ["echo robot", "pass"],
+  ];
+  expect(table.map(([cmd]) => [cmd, guard(cmd)])).toEqual(table);
 });
 
 // the pid file as `worker` writes it: "<pid> <start time>"
