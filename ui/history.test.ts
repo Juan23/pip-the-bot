@@ -96,3 +96,11 @@ test("a half-written last line is shown once it's complete", async () => {
   appendFileSync(file, "\n" + user(9, "[wake] Later") + "\n");
   expect((await readHistory(file, 200)).slice(-3).map((i) => i.text)).toEqual(["Café later? ☕", "Sure.", "[wake] Later"]);
 });
+
+test("a line that breaks parsing fails every read, and hides nothing after it once fixed", async () => {
+  const file = tempFile();
+  writeFileSync(file, [user(1, "ok"), assistant(2, null), user(3, "after"), ""].join("\n"));
+  for (let i = 0; i < 2; i++) await expect(readHistory(file, 200)).rejects.toThrow();
+  writeFileSync(file, [user(1, "ok"), assistant(2, { type: "text", text: "fine" }), user(3, "after"), ""].join("\n"));
+  expect((await readHistory(file, 200)).map((i) => i.text)).toEqual(["ok", "fine", "after"]);
+});
