@@ -1,6 +1,6 @@
 // Tests for the shell scripts, run against a throwaway home: none of them start Claude or reach the live Pip.
 import { expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -73,6 +73,44 @@ test("worker list and stop see a running worker", async () => {
   expect(worker("stop", "w").out).toBe("stopping w\n");
   expect(await sleeper.exited).not.toBe(0);
 });
+
+// A copy of the code whose worker reports go to a closed port, not the live Pip's, and a home whose
+// ~/.local/bin/claude (first on the worker's PATH) is a fake: real runs, offline, with no Claude session.
+const offlineWorker = () => {
+  const copy = tempHome(), fakeHome = tempHome();
+  for (const f of ["bot", "worker-guard", "worker-rules.md", "worker-settings.json"]) cpSync(join(code, f), join(copy, f));
+  writeFileSync(join(copy, "worker"), readFileSync(join(code, "worker"), "utf8").replaceAll("7377", "1"), { mode: 0o755 });
+  mkdirSync(join(fakeHome, ".local/bin"), { recursive: true });
+  writeFileSync(join(fakeHome, ".local/bin/claude"),
+    `#!/bin/zsh\nsleep \${FAKE_CLAUDE_SECS:-0}\nprint '{"type":"result","result":"all done"}'\n`, { mode: 0o755 });
+  const home = tempHome();
+  const worker = (args: string[], env: Record<string, string> = {}) =>
+    run([join(copy, "worker"), ...args], { BOT_HOME: home, HOME: fakeHome, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", ...env });
+  return { home, worker };
+};
+
+test("a run that ends leaves no pid record, and list, stop and resume still work", async () => {
+  const { home, worker } = offlineWorker();
+  for (const n of ["fast", "slow"]) {
+    mkdirSync(join(home, "workers", n), { recursive: true });
+    writeFileSync(join(home, "workers", n, "meta.json"),
+      JSON.stringify({ project: "/p", dir: tempHome(), branch: `pip/${n}`, session: "s", created: "now" }));
+    writeFileSync(join(home, "workers", n, "state"), "done\n");
+  }
+  const status = (n: string) => ({ state: readFileSync(join(home, "workers", n, "state"), "utf8").trim(), pid: existsSync(join(home, "workers", n, "pid")) });
+
+  expect(worker(["resume", "fast", "go on"]).out).toStartWith("started fast (run 1)");
+  expect(worker(["resume", "slow", "go on"], { FAKE_CLAUDE_SECS: "30" }).code).toBe(0);
+  while (!status("slow").pid) await Bun.sleep(20);
+  expect(worker(["list"]).out).toContain("slow  running");
+  expect(worker(["stop", "slow"]).out).toBe("stopping slow\n");
+
+  const deadline = Date.now() + 25_000;  // the run checks on claude every 10 s
+  while (Date.now() < deadline && ["fast", "slow"].some((n) => status(n).state === "running" || status(n).pid)) await Bun.sleep(200);
+  expect([status("fast"), status("slow")]).toEqual([{ state: "done", pid: false }, { state: "stopped", pid: false }]);
+  expect(worker(["list"]).out).toMatch(/^fast {2}done.*\n(.*\n){2}slow {2}stopped/);
+  expect(worker(["stop", "fast"]).err).toContain("fast isn't running");
+}, 30_000);
 
 test("bot stats sums events by kind and lists approvals", () => {
   const home = tempHome();
