@@ -12,7 +12,7 @@ An always-on personal agent for one Mac, built on Claude Code and a Claude subsc
   - the chat window, `ui/window.html`
   - the day journal, `ui/journal.html`
 
-  It also runs the Telegram bridge (`ui/telegram.ts`). `ui/mac/Bot.swift` is the menu bar app that shows the pages and starts the server.
+  It also runs the Telegram bridge (`ui/telegram.ts`). `ui/mac/Bot.swift` is the menu bar app that shows the pages and starts the server. It restarts a server that dies, but after 5 restarts in a minute it stops, dims its icon, and its menu shows the server's last error.
 - **`notify`** lets Pip reach you: a Mac notification, plus Telegram.
 
 ## Pip orchestrates: workers and approvals
