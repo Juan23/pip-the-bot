@@ -75,6 +75,18 @@ test("bot and notify refuse anything a worker started, and bot logs for anyone e
   expect(events).toMatchObject([{ kind: "approval", text: "merge #2 - approved" }]);
 });
 
+test("bot marks a headless turn in .running and a terminal chat in .terminal while they run", () => {
+  const home = tempHome(), fakeHome = tempHome();
+  mkdirSync(join(fakeHome, ".local/bin"), { recursive: true });
+  // a fake claude that reports the pid files it sees: it runs inside the turn or chat, in the bot's home
+  writeFileSync(join(fakeHome, ".local/bin/claude"),
+    `#!/bin/zsh\nprint -r -- "{\\"result\\":\\"running=$(<.running) terminal=$(<.terminal)\\"}"\n`, { mode: 0o755 });
+  const bot = (...args: string[]) => run([join(code, "bot"), ...args], { BOT_HOME: home, HOME: fakeHome, PATH: "/usr/bin:/bin:/usr/sbin:/sbin" });
+  expect(bot("-m", "hi").out).toMatch(/^running=\d+ terminal=\n$/);
+  expect(bot().out).toMatch(/running= terminal=\d+/);
+  expect([existsSync(join(home, ".running")), existsSync(join(home, ".terminal"))]).toEqual([false, false]);
+});
+
 test("worker list and stop see a running worker", async () => {
   const home = tempHome();
   const w = join(home, "workers/w");

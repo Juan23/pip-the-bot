@@ -70,6 +70,7 @@ case $1 in
     exec lockf -k -s -t 1800 .lock ${0:A} _turn auto "$*"
     ;;
   _turn)  # one headless turn, holding the lock: prints the reply and logs what it cost
+    print $$ > .running; trap 'rm -f .running' EXIT  # the interface shows the bot busy while this lives
     kind=$2 prompt=$3
     if [[ $kind == wake ]]; then
       echo $(( $(date +%s) + 3600 )) > .next-wake  # fallback if the bot doesn't pick a time
@@ -94,6 +95,7 @@ case $1 in
     ;;
   '')
     lockf -k -s -t 0 .lock true || echo "(bot is busy with something, waiting for it…)"
+    print $$ > .terminal; trap 'rm -f .terminal' EXIT  # its own file: waiting for the lock mustn't clobber a turn's
     measured lockf -k -s -t 1800 .lock $claude
     event terminal-chat $stats  # an interactive session reports no tokens or cost
     ;;

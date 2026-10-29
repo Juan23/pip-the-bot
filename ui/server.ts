@@ -2,6 +2,7 @@
 // Run: `bot serve` (Bot.app starts it). Listens on 127.0.0.1:7377 only.
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { alive } from "./alive.ts";
 import { readHistory, WORKER_PREFIX } from "./history.ts";
 import { readText, startTelegram, stopTelegram, type Done } from "./telegram.ts";
 
@@ -31,25 +32,21 @@ async function succeeds(cmd: string[]) {
   return (await Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" }).exited) === 0;
 }
 
-// Argument lists of the claude processes running the bot's conversation right now.
-async function conversationRuns(sid: string | null) {
-  if (!sid) return [];
-  const out = await new Response(Bun.spawn(["pgrep", "-lf", sid], { stdout: "pipe", stderr: "ignore" }).stdout).text();
-  return out.split("\n").map((line) => line.split(" ").slice(1)).filter(([cmd]) => cmd?.endsWith("claude"));
-}
+// Whether launchd's wake job is loaded. It rarely changes, so it's checked once a minute, not on every status answer.
+const wakeJobLoaded = () => succeeds(["launchctl", "print", `gui/${process.getuid!()}/local.bot`]).catch(() => false);
+let wakeJob = wakeJobLoaded();
+setInterval(() => { wakeJob = wakeJobLoaded(); }, 60_000);
 
 async function state() {
-  const sid = await readText(join(BOT, ".session"));
   const nextWake = Number(await readText(join(BOT, ".next-wake")));
-  const runs = await conversationRuns(sid);
-  const terminalChat = runs.some((args) => !args.includes("-p")); // `bot` is open in a terminal; messages from here wait for it to close
+  const terminalChat = await alive(join(BOT, ".terminal")); // `bot` is open in a terminal; messages from here wait for it to close
   return {
     name: (await readText(join(BOT, ".name"))) || "Your bot",
-    busy: runs.some((args) => args.includes("-p")) || (queued > 0 && !terminalChat), // answering a message or awake on its own
+    busy: (await alive(join(BOT, ".running"))) || (queued > 0 && !terminalChat), // answering a message or awake on its own
     terminalChat,
     queued,
     nextWake: nextWake > 0 ? nextWake * 1000 : null,
-    wakeJob: await succeeds(["launchctl", "print", `gui/${process.getuid!()}/local.bot`]),
+    wakeJob: await wakeJob,
     lastError,
   };
 }
