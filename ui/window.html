@@ -46,7 +46,6 @@
   .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .chip { padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); font-size: 12px; }
 
-
   .thinking { align-self: flex-start; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13.5px; }
   .thinking .dots { display: flex; gap: 4px; padding: 12px 15px; border-radius: 16px 16px 16px 4px; background: var(--surface); border: 1px solid var(--line); }
   .thinking .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: pulse 1.2s ease-in-out infinite; }
@@ -114,7 +113,7 @@
     <div id="status" role="status">Connecting…</div>
   </div>
   <button type="button" class="btn" id="wake">Wake now</button>
-  <button type="button" class="iconbtn" id="sideToggle" aria-label="Show sidebar" aria-controls="side" aria-expanded="true">
+  <button type="button" class="iconbtn" id="sideToggle" aria-label="Sidebar" aria-controls="side" aria-expanded="true">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/></svg>
   </button>
 </header>
@@ -317,12 +316,9 @@ const wrapEl = document.querySelector(".wrap"), toggle = $("sideToggle");
 function setSide(open) {
   wrapEl.classList.toggle("no-side", !open);
   toggle.setAttribute("aria-expanded", String(open));
-  toggle.setAttribute("aria-label", open ? "Hide sidebar" : "Show sidebar");
   try { localStorage.setItem("sidebar", open ? "1" : "0"); } catch {}
 }
-let sideOpen = true;
-try { sideOpen = localStorage.getItem("sidebar") !== "0"; } catch {}
-setSide(sideOpen);
+setSide(!wrapEl.classList.contains("no-side")); // the inline script after <div class="wrap"> already applied the saved choice
 toggle.addEventListener("click", () => setSide(wrapEl.classList.contains("no-side")));
 
 // ---- polling ----
