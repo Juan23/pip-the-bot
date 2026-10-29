@@ -88,11 +88,8 @@ case $1 in
     elif [[ $kind == wake ]]; then print -r -- $reply >> log
     else print -r -- $reply
     fi
-    [[ -s $out ]] && jq -c --arg at "$(date -u +%FT%TZ)" --arg kind $kind $stats '$ARGS.named + {
-      turns: .num_turns, cost_usd: .total_cost_usd, denials: (.permission_denials | length),
-      tokens_in: (.usage | .input_tokens + .cache_read_input_tokens + .cache_creation_input_tokens),
-      tokens_cached: .usage.cache_read_input_tokens,
-      tokens_out: .usage.output_tokens}' $out >> events.jsonl 2>/dev/null || event $kind $stats
+    [[ -s $out ]] && jq -c -L $code --arg at "$(date -u +%FT%TZ)" --arg kind $kind $stats \
+      'include "usage"; $ARGS.named + usage' $out >> events.jsonl 2>/dev/null || event $kind $stats
     rm -f $out
     ;;
   '')
