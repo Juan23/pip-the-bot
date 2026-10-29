@@ -46,13 +46,6 @@
   .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .chip { padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); font-size: 12px; }
 
-  .wake { align-self: center; max-width: min(85%, 640px); display: flex; align-items: flex-start; gap: 8px; padding: 8px 14px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); font-size: 13px; color: var(--muted); }
-  .wake svg { margin-top: 2px; }
-  .wake .text p, .wake .text ul, .wake .text li { display: inline; margin: 0; padding: 0; }
-  .wake .text p + p::before, .wake .text li + li::before { content: " "; }
-  .wake.clamped .text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-  .link { border: 0; padding: 0; background: none; color: var(--accent-ink); font-size: 13px; cursor: pointer; }
-
   .thinking { align-self: flex-start; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13.5px; }
   .thinking .dots { display: flex; gap: 4px; padding: 12px 15px; border-radius: 16px 16px 16px 4px; background: var(--surface); border: 1px solid var(--line); }
   .thinking .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: pulse 1.2s ease-in-out infinite; }
@@ -63,13 +56,17 @@
 
   form { flex: none; margin: 0 32px 24px; }
   .composer { display: flex; align-items: flex-end; gap: 10px; padding: 8px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line-strong); }
-  .composer:focus-within { border-color: var(--accent); }
-  textarea { flex: 1; min-width: 0; height: 44px; max-height: 200px; resize: none; padding: 11px 10px; border: 0; outline: none; background: transparent; font-size: 15px; line-height: 22px; }
+  .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  textarea { flex: 1; min-width: 0; height: 44px; max-height: 200px; resize: none; padding: 11px 10px; border: 0; background: transparent; font-size: 15px; line-height: 22px; }
+  textarea:focus-visible { outline: none; } /* the composer shows focus; base.css's ring would draw a box inside it */
   .send { width: 44px; height: 44px; flex: none; border-radius: 10px; border: 0; background: var(--accent); color: var(--on-accent); display: flex; align-items: center; justify-content: center; cursor: pointer; }
   #formError { margin: 8px 4px 0; font-size: 13.5px; color: var(--danger); }
   #formError:empty { display: none; }
 
-  aside { width: 320px; flex: none; overflow-y: auto; display: flex; flex-direction: column; gap: 22px; padding: 28px 24px; background: var(--surface); border-left: 1px solid var(--line); }
+  .iconbtn { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 9px; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; }
+  .iconbtn[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent-ink); }
+  .wrap.no-side aside { display: none; }
+  aside { width: 320px; flex: none; overflow-x: hidden; overflow-y: auto; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 22px; padding: 28px 24px; background: var(--surface); border-left: 1px solid var(--line); }
   aside section { display: flex; flex-direction: column; gap: 10px; }
   aside h2 { margin: 0; }
   .big { font-size: 22px; font-weight: 600; }
@@ -80,9 +77,19 @@
   .mem { padding: 10px 12px; border-radius: var(--radius); background: var(--surface-2); font-size: 14px; line-height: 1.4; }
   .mem b { display: block; font-weight: 600; }
   .mem span { color: var(--muted); font-size: 13.5px; }
-  .recent { display: flex; gap: 12px; font-size: 14px; line-height: 1.4; }
-  .recent .mono { flex: none; font-size: 12.5px; padding-top: 1px; }
-  .recent span + span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+  ul.plain.chips { gap: 8px; }
+  .wk { border-radius: 18px; background: var(--surface-2); border: 1px solid var(--line); font-size: 13.5px; line-height: 1.4; }
+  .wk summary { display: flex; align-items: center; gap: 8px; padding: 7px 12px; cursor: pointer; list-style: none; color: var(--muted); }
+  .wk summary::-webkit-details-marker { display: none; }
+  .wk summary .mono { flex: none; }
+  .wk summary .first { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+  .wk .chev { margin-left: auto; transition: transform 0.15s; }
+  .wk[open] .chev { transform: rotate(180deg); }
+  .wk[open] .first { display: none; }
+  .wk .full { padding: 0 14px 10px; }
+  .wk .full p, .wk .full ul { margin: 0; }
+  .wk .full p + *, .wk .full ul + * { margin-top: 6px; }
+  .wk .full ul { padding-left: 18px; }
 
   @media (max-width: 760px) {
     html, body { height: auto; }
@@ -106,10 +113,14 @@
     <div id="status" role="status">Connecting…</div>
   </div>
   <button type="button" class="btn" id="wake">Wake now</button>
+  <button type="button" class="iconbtn" id="sideToggle" aria-label="Sidebar" aria-controls="side" aria-expanded="true">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/></svg>
+  </button>
 </header>
 <p class="banner" id="offline" role="alert" hidden>Can't reach the bot's local server. Retrying every few seconds.</p>
 <p class="banner" id="lastError" role="alert" hidden></p>
 <div class="wrap">
+  <script>try { if (localStorage.getItem("sidebar") === "0") document.currentScript.parentElement.classList.add("no-side"); } catch {} /* before first paint */</script>
   <main>
     <div id="log" aria-live="polite" aria-label="Conversation">
       <div id="tail"></div>
@@ -125,11 +136,11 @@
       <p id="formError" role="alert"></p>
     </form>
   </main>
-  <aside aria-label="About the bot">
+  <aside id="side" aria-label="About the bot">
     <section><h2 class="eyebrow">Next wake-up</h2><div id="nextWake"></div></section>
+    <section><h2 class="eyebrow" id="recentTitle">Wake-ups</h2><div id="recent"></div></section>
     <section><h2 class="eyebrow" id="tasksTitle">Open tasks</h2><div id="tasks"></div></section>
     <section><h2 class="eyebrow" id="memTitle">Memory</h2><div id="mems"></div></section>
-    <section><h2 class="eyebrow">Recent wake-ups</h2><div id="recent"></div></section>
   </aside>
 </div>
 
@@ -138,6 +149,7 @@ import { getState, getHistory, getMemory, sendMessage, wakeNow, watch, toolLabel
 
 const $ = (id) => document.getElementById(id);
 const log = $("log"), tail = $("tail"), msg = $("msg");
+const CHEV = '<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
 const MOON = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>';
 
 function el(tag, cls, text) {
@@ -150,11 +162,12 @@ const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateStrin
 const when = (iso) => `${dayLabel(iso)} ${clock(iso)}`;
 const nearBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 80;
 
+const openWakes = new Set(); // chips you expanded, by wake time; kept across re-renders
 let state = null, items = [], name = "Pip";
 let pending = null; // { text, sentAt, el } — your message shown before history has it
 
 // ---- history: re-render only rows whose items changed (the last bot reply grows while it's written) ----
-let sigs = [], rows = []; // rows: { from, to, el } covering items[from..to]
+let sigs = [], rows = []; // rows: { at, el } for items[at]
 
 function bubble(item) {
   const m = el("div", `msg ${item.role === "you" ? "you" : "bot"}`);
@@ -170,53 +183,26 @@ function bubble(item) {
   return m;
 }
 
-function wakeNote(wake, reply) {
-  const n = el("div", "wake");
-  n.insertAdjacentHTML("afterbegin", MOON.replace('width="13" height="13"', 'width="14" height="14"'));
-  const body = el("div");
-  const text = el("div", "text");
-  text.append(`${wake.via === "worker" ? "Worker update" : "Woke on its own"} at ${clock(wake.at)} · `);
-  const r = el("span");
-  if (reply) r.innerHTML = renderText(reply.text || "working…"); else r.textContent = "working…";
-  text.append(r);
-  body.append(text);
-  if (reply && reply.text.length > 140) {
-    n.classList.add("clamped");
-    const more = el("button", "link", "Show more");
-    more.type = "button";
-    more.setAttribute("aria-expanded", "false");
-    more.onclick = () => {
-      const open = n.classList.toggle("clamped") === false;
-      more.textContent = open ? "Show less" : "Show more";
-      more.setAttribute("aria-expanded", String(open));
-    };
-    body.append(more);
-  }
-  n.append(body);
-  return n;
-}
+// Wake-ups and the reply that follows one show as chips in the sidebar, not in the conversation.
+const shown = (k) => items[k].role !== "wake" && !(items[k].role === "bot" && items[k - 1]?.role === "wake");
 
 function renderHistory() {
   const next = items.map((x) => JSON.stringify(x));
   let i = 0;
   while (i < next.length && i < sigs.length && next[i] === sigs[i]) i++;
   if (i === next.length && i === sigs.length) return false;
-  let start = i;
-  while (rows.length && rows.at(-1).to >= i) { const r = rows.pop(); r.el.remove(); start = r.from; }
-  for (let j = start; j < items.length; j++) {
-    const it = items[j], row = el("div", "row"), from = j;
-    if (j === 0 || !sameDay(items[j - 1].at, it.at)) {
+  while (rows.length && rows.at(-1).at >= i) rows.pop().el.remove();
+  for (let j = rows.length ? rows.at(-1).at + 1 : 0; j < items.length; j++) {
+    if (!shown(j)) continue;
+    const it = items[j], row = el("div", "row");
+    let p = j - 1;
+    while (p >= 0 && !shown(p)) p--;
+    if (p < 0 || !sameDay(items[p].at, it.at)) {
       const d = el("div", "day", dayLabel(it.at)); d.dataset.at = it.at; row.append(d);
     }
-    let to = j;
-    if (it.role === "wake") {
-      const reply = items[j + 1]?.role === "bot" ? items[j + 1] : null;
-      row.append(wakeNote(it, reply));
-      to = reply || j + 1 >= items.length ? j + 1 : j; // a reply still to come belongs to this row
-      if (reply) j++;
-    } else row.append(bubble(it));
+    row.append(bubble(it));
     log.insertBefore(row, tail);
-    rows.push({ from, to, el: row });
+    rows.push({ at: j, el: row });
   }
   sigs = next;
   return true;
@@ -238,7 +224,7 @@ function renderTail() {
     t.innerHTML = '<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>';
     t.append(el("span", null, label));
     tail.append(t);
-  } else if (!items.length && state) {
+  } else if (!rows.length && state) {
     tail.append(el("p", "empty", `No messages yet. Say hello to ${name}.`));
   }
 }
@@ -300,18 +286,40 @@ function renderSidebar(mem) {
     $("mems").replaceChildren(mem.memories.length ? list : el("p", "note", "Nothing saved yet."));
   }
   const wakes = [];
-  items.forEach((x, i) => { if (x.role === "wake") wakes.push({ at: x.at, reply: items[i + 1]?.role === "bot" ? items[i + 1].text : "" }); });
-  const recent = wakes.slice(-5).reverse();
-  if (changed("recent", recent.map((w) => [when(w.at), w.reply]))) {
-    const list = el("ul", "plain");
+  items.forEach((x, i) => { if (x.role === "wake") wakes.push({ at: x.at, via: x.via, reply: items[i + 1]?.role === "bot" ? items[i + 1].text : "" }); });
+  const recent = wakes.slice(-10).reverse();
+  if (changed("recent", recent)) {
+    $("recentTitle").textContent = `Wake-ups · ${wakes.length}`;
+    const list = el("ul", "plain chips");
     for (const w of recent) {
-      const li = el("li", "recent");
-      li.append(el("span", "mono", when(w.at)), el("span", null, w.reply.split("\n")[0] || "No reply yet"));
+      const li = el("li"), d = el("details", "wk");
+      d.open = openWakes.has(w.at);
+      d.addEventListener("toggle", () => { d.open ? openWakes.add(w.at) : openWakes.delete(w.at); });
+      const sum = el("summary");
+      sum.dataset.at = w.at;
+      sum.append(el("span", "mono", when(w.at)), el("span", "first", w.reply.split("\n")[0] || "working…"));
+      sum.insertAdjacentHTML("beforeend", CHEV);
+      const full = el("div", "full");
+      full.innerHTML = renderText(`${w.via === "worker" ? "Worker update" : "Woke on its own"}\n\n${w.reply || "working…"}`);
+      d.append(sum, full);
+      li.append(d);
       list.append(li);
     }
+    const focused = document.activeElement?.closest?.("#recent summary")?.dataset.at;
     $("recent").replaceChildren(recent.length ? list : el("p", "note", "No wake-ups yet."));
+    if (focused) [...$("recent").querySelectorAll("summary")].find((s) => s.dataset.at === focused)?.focus(); // keep the keyboard's place
   }
 }
+
+// ---- sidebar toggle (remembered per browser) ----
+const wrapEl = document.querySelector(".wrap"), toggle = $("sideToggle");
+function setSide(open) {
+  wrapEl.classList.toggle("no-side", !open);
+  toggle.setAttribute("aria-expanded", String(open));
+  try { localStorage.setItem("sidebar", open ? "1" : "0"); } catch {}
+}
+setSide(!wrapEl.classList.contains("no-side")); // the inline script after <div class="wrap"> already applied the saved choice
+toggle.addEventListener("click", () => setSide(wrapEl.classList.contains("no-side")));
 
 // ---- polling ----
 async function poll() {
