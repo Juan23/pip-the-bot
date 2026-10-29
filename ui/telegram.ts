@@ -18,17 +18,17 @@ export async function stopTelegram() {
   unanswered.clear();
 }
 
-async function read(path: string) {
+export async function readText(path: string) {
   const file = Bun.file(path);
-  return (await file.exists()) ? (await file.text()).trim() : "";
+  return (await file.exists()) ? (await file.text()).trim() : null;
 }
 
 export async function startTelegram(bot: string, enqueue: Enqueue) {
-  const token = await read(join(bot, ".telegram"));
+  const token = await readText(join(bot, ".telegram"));
   if (!token) return;
-  const owner = Number(await read(join(bot, ".telegram-chat")));
+  const owner = Number(await readText(join(bot, ".telegram-chat")));
   const offsetFile = join(bot, ".telegram-offset");
-  let offset = Number(await read(offsetFile)) || 0;
+  let offset = Number(await readText(offsetFile)) || 0;
 
   const api = async (method: string, body: object) => {
     const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
