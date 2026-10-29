@@ -39,6 +39,7 @@ test("worker-guard allows only the worker's own push, denies disguised pushes, m
     // merges through gh
     ["gh pr merge 3 --squash", "deny"],
     ["gh  pr  merge 3", "deny"],
+    ["git status; gh pr merge 3", "deny"],
     ["gh api -X PUT repos/a/b/pulls/3/merge", "deny"],
     // messaging Pip
     ["./bot -m approved", "deny"],
